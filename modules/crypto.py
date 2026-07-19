@@ -46,34 +46,6 @@ class CryptoOSINT(BaseModule):
         if address.startswith('cosmos1') and len(address) >= 39:
             return await self._scan_cosmos(address, depth)
             
-        # Avalanche (AVAX)
-        if address.startswith('0x') and len(address) == 42:
-            return await self._scan_avalanche(address, depth)
-            
-        # Polygon (MATIC)
-        if address.startswith('0x') and len(address) == 42:
-            return await self._scan_polygon(address, depth)
-            
-        # Binance Smart Chain (BSC)
-        if address.startswith('0x') and len(address) == 42:
-            return await self._scan_bsc(address, depth)
-            
-        # Arbitrum
-        if address.startswith('0x') and len(address) == 42:
-            return await self._scan_arbitrum(address, depth)
-            
-        # Optimism
-        if address.startswith('0x') and len(address) == 42:
-            return await self._scan_optimism(address, depth)
-            
-        # Fantom
-        if address.startswith('0x') and len(address) == 42:
-            return await self._scan_fantom(address, depth)
-            
-        # Cronos
-        if address.startswith('0x') and len(address) == 42:
-            return await self._scan_cronos(address, depth)
-            
         # Near
         if len(address) >= 2 and '.' in address:
             return await self._scan_near(address, depth)
@@ -85,10 +57,6 @@ class CryptoOSINT(BaseModule):
         # Stellar (XLM)
         if address.startswith('G') and len(address) == 56:
             return await self._scan_stellar(address, depth)
-            
-        # VeChain
-        if address.startswith('0x') and len(address) == 42:
-            return await self._scan_vechain(address, depth)
             
         return {'error': 'Unsupported or invalid address format'}
         
@@ -195,8 +163,7 @@ class CryptoOSINT(BaseModule):
             'arbitrum': 'https://api.arbiscan.io/api',
             'optimism': 'https://api-optimistic.etherscan.io/api',
             'fantom': 'https://api.ftmscan.com/api',
-            'cronos': 'https://api.cronoscan.com/api',
-            'vechain': 'https://api.vechain.energy/api'
+            'cronos': 'https://api.cronoscan.com/api'
         }
         
         base_url = explorer_urls.get(chain, 'https://api.etherscan.io/api')
@@ -212,15 +179,20 @@ class CryptoOSINT(BaseModule):
                     results['transaction_count'] = len(txs)
                     
                     balance = 0
+                    total_received = 0
+                    total_sent = 0
                     for tx in txs:
+                        value = int(tx['value']) / 10**18
                         if tx['to'].lower() == address.lower():
-                            balance += int(tx['value']) / 10**18
+                            balance += value
+                            total_received += value
                         elif tx['from'].lower() == address.lower():
-                            balance -= int(tx['value']) / 10**18
+                            balance -= value
+                            total_sent += value
                             
                     results['balance'] = balance
-                    results['total_received'] = sum(int(tx['value']) for tx in txs if tx['to'].lower() == address.lower()) / 10**18
-                    results['total_sent'] = sum(int(tx['value']) for tx in txs if tx['from'].lower() == address.lower()) / 10**18
+                    results['total_received'] = total_received
+                    results['total_sent'] = total_sent
                     
                     children = await self._build_eth_tree(txs, address, depth, 1)
                     results['tree']['root']['children'] = children
@@ -253,6 +225,7 @@ class CryptoOSINT(BaseModule):
         }
         
         try:
+            # Get balance
             async with self.session.post(
                 "https://api.mainnet-beta.solana.com",
                 json={
@@ -266,10 +239,66 @@ class CryptoOSINT(BaseModule):
                 if 'result' in data:
                     results['balance'] = data['result']['value'] / 1000000000
                     
+            # Get transactions
+            async with self.session.post(
+                "https://api.mainnet-beta.solana.com",
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "getSignaturesForAddress",
+                    "params": [address, {"limit": 50}]
+                }
+            ) as resp:
+                data = await resp.json()
+                if 'result' in data:
+                    txs = data['result']
+                    results['transaction_count'] = len(txs)
+                    
+                    # Get transaction details
+                    children = []
+                    seen = set()
+                    for tx in txs[:20]:
+                        sig = tx.get('signature', '')
+                        if sig:
+                            tx_detail = await self._get_solana_tx_detail(sig)
+                            if tx_detail:
+                                for acc in tx_detail.get('accountKeys', []):
+                                    acc_addr = acc.get('pubkey', '')
+                                    if acc_addr and acc_addr != address and acc_addr not in seen:
+                                        seen.add(acc_addr)
+                                        children.append({
+                                            'address': acc_addr,
+                                            'amount': 0,
+                                            'level': 1,
+                                            'children': []
+                                        })
+                                        
+                    results['tree']['root']['children'] = children[:20]
+                    results['flags'] = await self._detect_flags(results)
+                    results['exchange_wallets'] = await self._detect_exchange(results)
+                    
         except Exception as e:
             results['error'] = str(e)
             
         return results
+        
+    async def _get_solana_tx_detail(self, signature):
+        try:
+            async with self.session.post(
+                "https://api.mainnet-beta.solana.com",
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "getTransaction",
+                    "params": [signature, {"encoding": "jsonParsed"}]
+                }
+            ) as resp:
+                data = await resp.json()
+                if 'result' in data:
+                    return data['result']
+        except:
+            pass
+        return None
         
     async def _scan_tron(self, address: str, depth: int) -> Dict:
         results = {
@@ -302,6 +331,38 @@ class CryptoOSINT(BaseModule):
                     results['total_received'] = account.get('total_received', 0) / 1000000
                     results['total_sent'] = account.get('total_sent', 0) / 1000000
                     results['transaction_count'] = account.get('transactions', 0)
+                    
+            async with self.session.get(
+                f"https://api.trongrid.io/v1/accounts/{address}/transactions?limit=50"
+            ) as resp:
+                data = await resp.json()
+                if 'data' in data:
+                    children = []
+                    seen = set()
+                    for tx in data['data'][:20]:
+                        raw_data = tx.get('raw_data', {})
+                        contract = raw_data.get('contract', [{}])[0]
+                        if contract:
+                            value = contract.get('parameter', {}).get('value', {})
+                            owner = value.get('owner_address', '')
+                            to = value.get('to_address', '')
+                            if owner and owner != address and owner not in seen:
+                                seen.add(owner)
+                                children.append({
+                                    'address': owner,
+                                    'amount': value.get('amount', 0) / 1000000,
+                                    'level': 1,
+                                    'children': []
+                                })
+                            if to and to != address and to not in seen:
+                                seen.add(to)
+                                children.append({
+                                    'address': to,
+                                    'amount': value.get('amount', 0) / 1000000,
+                                    'level': 1,
+                                    'children': []
+                                })
+                    results['tree']['root']['children'] = children[:20]
                     
         except Exception as e:
             results['error'] = str(e)
@@ -436,30 +497,6 @@ class CryptoOSINT(BaseModule):
             results['error'] = str(e)
             
         return results
-        
-    async def _scan_avalanche(self, address: str, depth: int) -> Dict:
-        return await self._scan_evm(address, depth, 'avalanche')
-        
-    async def _scan_polygon(self, address: str, depth: int) -> Dict:
-        return await self._scan_evm(address, depth, 'polygon')
-        
-    async def _scan_bsc(self, address: str, depth: int) -> Dict:
-        return await self._scan_evm(address, depth, 'bsc')
-        
-    async def _scan_arbitrum(self, address: str, depth: int) -> Dict:
-        return await self._scan_evm(address, depth, 'arbitrum')
-        
-    async def _scan_optimism(self, address: str, depth: int) -> Dict:
-        return await self._scan_evm(address, depth, 'optimism')
-        
-    async def _scan_fantom(self, address: str, depth: int) -> Dict:
-        return await self._scan_evm(address, depth, 'fantom')
-        
-    async def _scan_cronos(self, address: str, depth: int) -> Dict:
-        return await self._scan_evm(address, depth, 'cronos')
-        
-    async def _scan_vechain(self, address: str, depth: int) -> Dict:
-        return await self._scan_evm(address, depth, 'vechain')
         
     async def _scan_near(self, address: str, depth: int) -> Dict:
         results = {
