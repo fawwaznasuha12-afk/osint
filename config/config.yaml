@@ -1,0 +1,39 @@
+framework:
+  name: OSINT 
+  developer: VORTEX22
+
+scan:
+  timeout: 30
+  max_concurrent: 20
+  retry_attempts: 3
+  rate_limit: 100
+
+proxy:
+  enabled: false
+  type: http
+  rotation: random
+
+output:
+  formats:
+    - json
+    - txt
+  report_dir: ./reports
+  auto_save: true
+
+user_agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
+
+modules:
+  email:
+    enabled: true
+  username:
+    enabled: true
+  domain:
+    enabled: true
+  social:
+    enabled: true
+  phone:
+    enabled: true
+  image:
+    enabled: true
+  crypto:
+    enabled: true
