@@ -1,6 +1,7 @@
 import hashlib
 import re
 import aiohttp
+import asyncio
 from typing import Dict, List
 from modules.base import BaseModule
 
