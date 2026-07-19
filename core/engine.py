@@ -17,6 +17,14 @@ from core.output import OutputFormatter
 from core.proxy import ProxyManager
 from core.logger import Logger
 
+from modules.email import EmailOSINT
+from modules.username import UsernameOSINT
+from modules.domain import DomainOSINT
+from modules.social import SocialOSINT
+from modules.phone import PhoneOSINT
+from modules.image import ImageOSINT
+from modules.crypto import CryptoOSINT
+
 console = Console()
 
 class Engine:
@@ -107,7 +115,8 @@ class Engine:
             
     def save_report(self, target, format='json'):
         timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
-        filename = f"reports/{target}_{timestamp}.{format}"
+        target_clean = target.replace('@', '_').replace('.', '_').replace('/', '_')
+        filename = f"reports/{target_clean}_{timestamp}.{format}"
         os.makedirs('reports', exist_ok=True)
         
         content = self.generate_report(format)
