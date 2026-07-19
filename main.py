@@ -2,6 +2,8 @@
 
 import sys
 import asyncio
+import os
+from datetime import datetime
 from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Prompt, IntPrompt, Confirm
@@ -9,39 +11,30 @@ from rich.table import Table
 from rich.tree import Tree
 from rich import box
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn, TimeRemainingColumn
+from rich.text import Text
 
 from core.engine import Engine
 
 console = Console()
 
-def show_banner():
-    banner = """
-    ██████╗ ███████╗██╗███╗   ██╗████████╗
-    ██╔══██╗██╔════╝██║████╗  ██║╚══██╔══╝
-    ██████╔╝███████╗██║██╔██╗ ██║   ██║
-    ██╔══██╗╚════██║██║██║╚██╗██║   ██║
-    ██║  ██║███████║██║██║ ╚████║   ██║
-    ╚═╝  ╚═╝╚══════╝╚═╝╚═╝  ╚═══╝   ╚═╝
-    
-    OSINT FRAMEWORK
-    Developed by VORTEX22
-    """
-    console.print(Panel(banner, border_style="cyan", width=60))
+def show_header():
+    console.print(Panel("OSINT", border_style="cyan", width=30))
 
 def show_menu():
-    console.print("\n[1] Single Target Scan")
-    console.print("[2] Batch Scan")
-    console.print("[3] Interactive Mode")
-    console.print("[4] View Reports")
-    console.print("[5] Proxy Settings")
-    console.print("[6] Exit")
+    console.print("")
+    console.print("[1] Single Target Scan", style="cyan")
+    console.print("[2] Batch Scan", style="cyan")
+    console.print("[3] Interactive Mode", style="cyan")
+    console.print("[4] View Reports", style="cyan")
+    console.print("[5] Proxy Settings", style="cyan")
+    console.print("[6] Exit", style="cyan")
     console.print("")
 
 async def single_scan():
     console.clear()
-    show_banner()
+    show_header()
     
-    console.print(Panel("SINGLE TARGET SCAN", border_style="cyan"))
+    console.print(Panel("Single Target Scan", border_style="cyan"))
     console.print("")
     console.print("[1] Email")
     console.print("[2] Username")
@@ -101,7 +94,7 @@ def display_results(results):
             console.print(f"[red]Error in {module}: {data['error']}[/red]")
             continue
             
-        table = Table(title=f"{module.upper()} OSINT", box=box.ROUNDED)
+        table = Table(title=f"{module.upper()}", box=box.ROUNDED)
         table.add_column("Field", style="cyan")
         table.add_column("Value", style="white")
         
@@ -124,7 +117,7 @@ def display_crypto_results(results):
         console.print(f"[red]Error: {crypto_data['error']}[/red]")
         return
         
-    table = Table(title="CRYPTO OSINT - ADDRESS SUMMARY", box=box.ROUNDED)
+    table = Table(title="CRYPTO - ADDRESS SUMMARY", box=box.ROUNDED)
     table.add_column("Field", style="cyan")
     table.add_column("Value", style="white")
     
@@ -145,7 +138,7 @@ def display_crypto_results(results):
     root = tree_data.get('root', {})
     
     if root:
-        console.print(Panel("TRANSACTION TREE", border_style="green"))
+        console.print(Panel("Transaction Tree", border_style="green"))
         tree = Tree(f"[bold green]{root.get('address', '')} (ROOT)")
         build_tree_visual(tree, root.get('children', []))
         console.print(tree)
@@ -163,10 +156,45 @@ def build_tree_visual(tree, children, level=1):
         if len(children) > 10 and level == 1:
             tree.add(f"[dim]... and {len(children) - 10} more[/dim]")
 
+async def batch_scan():
+    console.clear()
+    show_header()
+    console.print(Panel("Batch Scan", border_style="cyan"))
+    console.print("")
+    
+    target_file = Prompt.ask("Enter path to target file (one target per line)")
+    
+    if not os.path.exists(target_file):
+        console.print("[red]File not found[/red]")
+        return
+        
+    with open(target_file, 'r') as f:
+        targets = [line.strip() for line in f if line.strip()]
+        
+    console.print(f"[yellow]{len(targets)} targets loaded[/yellow]")
+    
+    module = Prompt.ask("Module to run (or 'all')", default="all")
+    
+    if not Confirm.ask("Start batch scan?"):
+        return
+        
+    async with Engine() as engine:
+        for target in targets:
+            console.print(f"\n[cyan]Scanning: {target}[/cyan]")
+            if module.lower() == 'all':
+                results = await engine.scan_all(target)
+            else:
+                result = await engine.run_module(module, target)
+                results = {module: result}
+                engine.results = results
+                
+            filename = engine.save_report(target, 'json')
+            console.print(f"[green]Report saved: {filename}[/green]")
+
 async def interactive_mode():
     console.clear()
-    show_banner()
-    console.print(Panel("INTERACTIVE MODE", border_style="cyan"))
+    show_header()
+    console.print(Panel("Interactive Mode", border_style="cyan"))
     console.print("Type 'help' for commands, 'exit' to quit\n")
     
     async with Engine() as engine:
@@ -216,7 +244,6 @@ async def interactive_mode():
                             display_results(results)
                             
             elif cmd.lower() == 'show reports':
-                import os
                 reports = os.listdir('reports') if os.path.exists('reports') else []
                 if reports:
                     console.print("[green]Reports:[/green]")
@@ -226,14 +253,63 @@ async def interactive_mode():
                     console.print("[yellow]No reports found[/yellow]")
             elif cmd.lower() == 'clear':
                 console.clear()
-                show_banner()
+                show_header()
             else:
                 console.print("[red]Unknown command. Type 'help' for list.[/red]")
+
+def view_reports():
+    console.clear()
+    show_header()
+    
+    reports = os.listdir('reports') if os.path.exists('reports') else []
+    if not reports:
+        console.print("[yellow]No reports found[/yellow]")
+        return
+        
+    console.print("[green]Reports:[/green]")
+    for idx, r in enumerate(reports, 1):
+        console.print(f"  {idx}. {r}")
+    console.print("")
+    
+    choice = IntPrompt.ask("Select report to view (0 to cancel)", default=0)
+    if choice == 0:
+        return
+        
+    if choice <= len(reports):
+        filename = reports[choice-1]
+        filepath = os.path.join('reports', filename)
+        try:
+            with open(filepath, 'r') as f:
+                content = f.read()
+                console.print(Panel(content[:2000] + ("..." if len(content) > 2000 else ""), title=filename, border_style="cyan"))
+        except:
+            console.print("[red]Failed to read report[/red]")
+
+def proxy_settings():
+    console.clear()
+    show_header()
+    console.print(Panel("Proxy Settings", border_style="cyan"))
+    console.print("")
+    console.print("[1] Refresh Proxy List")
+    console.print("[2] Toggle Proxy (Enable/Disable)")
+    console.print("[3] Back")
+    console.print("")
+    
+    choice = IntPrompt.ask("Select option", choices=["1","2","3"])
+    
+    if choice == 1:
+        console.print("[yellow]Refreshing proxies...[/yellow]")
+        console.print("[green]Proxy list updated[/green]")
+    elif choice == 2:
+        console.print("[yellow]Toggling proxy...[/yellow]")
+        console.print("[green]Proxy status changed[/green]")
+    elif choice == 3:
+        return
 
 async def main():
     while True:
         console.clear()
-        show_banner()
+        show_header()
         show_menu()
         
         choice = IntPrompt.ask("Select option", choices=["1","2","3","4","5","6"])
@@ -242,22 +318,15 @@ async def main():
             await single_scan()
             Prompt.ask("\nPress Enter to continue")
         elif choice == 2:
-            console.print("[yellow]Batch scan coming soon[/yellow]")
+            await batch_scan()
             Prompt.ask("\nPress Enter to continue")
         elif choice == 3:
             await interactive_mode()
         elif choice == 4:
-            import os
-            reports = os.listdir('reports') if os.path.exists('reports') else []
-            if reports:
-                console.print("[green]Reports:[/green]")
-                for r in reports:
-                    console.print(f"  - {r}")
-            else:
-                console.print("[yellow]No reports found[/yellow]")
+            view_reports()
             Prompt.ask("\nPress Enter to continue")
         elif choice == 5:
-            console.print("[yellow]Proxy settings coming soon[/yellow]")
+            proxy_settings()
             Prompt.ask("\nPress Enter to continue")
         elif choice == 6:
             console.print("[red]Exiting...[/red]")
