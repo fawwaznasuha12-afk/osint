@@ -20,6 +20,12 @@ class Validator:
     def validate_crypto(self, address):
         if len(address) >= 26 and len(address) <= 34 and address[0] in ['1', '3']:
             return True
+        if address.startswith('bc1') and len(address) >= 42:
+            return True
         if address.startswith('0x') and len(address) == 42:
+            return True
+        if len(address) >= 32 and len(address) <= 44 and address[0] in ['G', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F']:
+            return True
+        if address.startswith('T') and len(address) == 34:
             return True
         return False
