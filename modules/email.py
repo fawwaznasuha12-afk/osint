@@ -33,16 +33,22 @@ class EmailOSINT(BaseModule):
                 'domain_age': None,
                 'domain_trust': 0,
                 'breaches': [],
+                'breach_details': [],
                 'leaked_passwords': 0,
                 'disposable': False,
                 'gravatar': None,
+                'gravatar_profile': None,
                 'social_accounts': [],
                 'spf_record': None,
                 'dkim_record': None,
                 'dmarc_record': None,
                 'reputation_score': 0,
                 'risk_score': 0,
-                'permutations': []
+                'risk_level': 'low',
+                'permutations': [],
+                'similar_emails': [],
+                'first_seen': None,
+                'last_breach': None
             },
             'timestamp': datetime.utcnow().isoformat()
         }
@@ -60,13 +66,19 @@ class EmailOSINT(BaseModule):
         
         data['valid'] = await self._verify_email(email)
         data['breaches'] = await self._check_breaches(email)
+        data['breach_details'] = await self._get_breach_details(data['breaches'])
         data['leaked_passwords'] = await self._check_leaked_passwords(email)
         data['disposable'] = await self._is_disposable(email)
         data['gravatar'] = await self._get_gravatar(email)
+        data['gravatar_profile'] = await self._get_gravatar_profile(email)
         data['social_accounts'] = await self._find_social(email)
         data['permutations'] = self._generate_permutations(email)
+        data['similar_emails'] = self._generate_similar_emails(email)
+        data['first_seen'] = await self._get_first_seen(email)
+        data['last_breach'] = await self._get_last_breach(data['breaches'])
         data['reputation_score'] = self._calculate_reputation(data)
         data['risk_score'] = self._calculate_risk(data)
+        data['risk_level'] = self._get_risk_level(data['risk_score'])
         
         return results
         
@@ -137,6 +149,26 @@ class EmailOSINT(BaseModule):
         except:
             return []
             
+    async def _get_breach_details(self, breaches):
+        details = []
+        for breach in breaches:
+            details.append({
+                'name': breach.get('Name', 'Unknown'),
+                'title': breach.get('Title', 'Unknown'),
+                'domain': breach.get('Domain', 'Unknown'),
+                'breach_date': breach.get('BreachDate', 'Unknown'),
+                'added_date': breach.get('AddedDate', 'Unknown'),
+                'pwn_count': breach.get('PwnCount', 0),
+                'data_classes': breach.get('DataClasses', []),
+                'is_verified': breach.get('IsVerified', False),
+                'is_fabricated': breach.get('IsFabricated', False),
+                'is_sensitive': breach.get('IsSensitive', False),
+                'is_retired': breach.get('IsRetired', False),
+                'is_spam_list': breach.get('IsSpamList', False),
+                'logo_path': breach.get('LogoPath', '')
+            })
+        return details
+        
     async def _check_leaked_passwords(self, email):
         try:
             import requests
@@ -177,6 +209,18 @@ class EmailOSINT(BaseModule):
             pass
         return None
         
+    async def _get_gravatar_profile(self, email):
+        hash_md5 = hashlib.md5(email.lower().encode()).hexdigest()
+        url = f"https://www.gravatar.com/{hash_md5}.json"
+        try:
+            async with self.session.get(url) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    return data.get('entry', [{}])[0] if data.get('entry') else None
+        except:
+            pass
+        return None
+        
     async def _find_social(self, email):
         platforms = {
             'twitter': 'https://twitter.com/',
@@ -188,7 +232,11 @@ class EmailOSINT(BaseModule):
             'youtube': 'https://youtube.com/@',
             'reddit': 'https://reddit.com/user/',
             'pinterest': 'https://pinterest.com/',
-            'tumblr': 'https://tumblr.com/'
+            'tumblr': 'https://tumblr.com/',
+            'medium': 'https://medium.com/@',
+            'devto': 'https://dev.to/',
+            'keybase': 'https://keybase.io/',
+            'hackernews': 'https://news.ycombinator.com/user?id='
         }
         
         username = email.split('@')[0]
@@ -221,12 +269,63 @@ class EmailOSINT(BaseModule):
             permutations.append(f"{parts[0]}{parts[1]}@{domain}")
             permutations.append(f"{parts[0]}_{parts[1]}@{domain}")
             permutations.append(f"{parts[0]}-{parts[1]}@{domain}")
+            permutations.append(f"{parts[0]}.{parts[1][0]}@{domain}")
+            permutations.append(f"{parts[0][0]}{parts[1]}@{domain}")
             
         permutations.append(f"{username}1@{domain}")
         permutations.append(f"{username}12@{domain}")
         permutations.append(f"{username}123@{domain}")
+        permutations.append(f"{username}2024@{domain}")
+        permutations.append(f"{username}@{domain.replace('.com', '.net')}")
+        permutations.append(f"{username}@{domain.replace('.com', '.org')}")
         
-        return permutations[:10]
+        return permutations[:15]
+        
+    def _generate_similar_emails(self, email):
+        username, domain = email.split('@')
+        similar = []
+        
+        # Common typos
+        common_typos = ['gmail.com', 'yahoo.com', 'outlook.com', 'hotmail.com', 'protonmail.com']
+        for d in common_typos:
+            if d != domain:
+                similar.append(f"{username}@{d}")
+                
+        # Common prefixes/suffixes
+        prefixes = ['info', 'admin', 'contact', 'support', 'sales', 'help']
+        for p in prefixes:
+            similar.append(f"{p}@{domain}")
+            
+        return similar[:10]
+        
+    async def _get_first_seen(self, email):
+        try:
+            # Check breach data for first appearance
+            breaches = await self._check_breaches(email)
+            if breaches:
+                dates = []
+                for breach in breaches:
+                    if breach.get('BreachDate'):
+                        dates.append(breach['BreachDate'])
+                if dates:
+                    return min(dates)
+        except:
+            pass
+        return None
+        
+    async def _get_last_breach(self, breaches):
+        if not breaches:
+            return None
+        try:
+            dates = []
+            for breach in breaches:
+                if breach.get('BreachDate'):
+                    dates.append(breach['BreachDate'])
+            if dates:
+                return max(dates)
+        except:
+            pass
+        return None
         
     def _calculate_reputation(self, data):
         score = 0
@@ -257,3 +356,15 @@ class EmailOSINT(BaseModule):
         if data.get('domain_trust', 100) < 30:
             risk += 10
         return min(100, risk)
+        
+    def _get_risk_level(self, score):
+        if score >= 70:
+            return 'critical'
+        elif score >= 50:
+            return 'high'
+        elif score >= 30:
+            return 'medium'
+        elif score >= 10:
+            return 'low'
+        else:
+            return 'safe'
