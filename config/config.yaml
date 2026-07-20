@@ -1,6 +1,5 @@
 framework:
-  name: OSINT 
-  developer: VORTEX22
+  name: OSINT Framework
 
 scan:
   timeout: 30
