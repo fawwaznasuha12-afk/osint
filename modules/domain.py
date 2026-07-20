@@ -4,6 +4,7 @@ import ssl
 import socket
 import asyncio
 from typing import Dict, List
+from datetime import datetime
 from modules.base import BaseModule
 
 class DomainOSINT(BaseModule):
@@ -12,19 +13,28 @@ class DomainOSINT(BaseModule):
         
     async def scan(self, domain: str) -> Dict:
         results = {
-            'domain': domain,
-            'whois': None,
-            'dns_records': {},
-            'subdomains': [],
-            'ssl_cert': None,
-            'cloudflare': False
+            'target': domain,
+            'module': 'domain',
+            'status': 'success',
+            'data': {
+                'domain': domain,
+                'whois': None,
+                'dns_records': {},
+                'subdomains': [],
+                'ssl_cert': None,
+                'cloudflare': False,
+                'tech_stack': []
+            },
+            'timestamp': datetime.utcnow().isoformat()
         }
         
-        results['whois'] = await self._get_whois(domain)
-        results['dns_records'] = await self._get_dns(domain)
-        results['subdomains'] = await self._find_subdomains(domain)
-        results['ssl_cert'] = await self._get_ssl(domain)
-        results['cloudflare'] = await self._check_cloudflare(domain)
+        data = results['data']
+        data['whois'] = await self._get_whois(domain)
+        data['dns_records'] = await self._get_dns(domain)
+        data['subdomains'] = await self._find_subdomains(domain)
+        data['ssl_cert'] = await self._get_ssl(domain)
+        data['cloudflare'] = await self._check_cloudflare(domain)
+        data['tech_stack'] = await self._detect_tech(domain)
         
         return results
         
@@ -54,25 +64,20 @@ class DomainOSINT(BaseModule):
         return records
         
     async def _find_subdomains(self, domain):
-        common_subdomains = [
-            'www', 'mail', 'ftp', 'localhost', 'webmail', 'smtp',
-            'pop', 'ns1', 'webdisk', 'ns2', 'cpanel', 'whm',
-            'autodiscover', 'autoconfig', 'm', 'imap', 'test',
-            'ns', 'blog', 'pop3', 'dev', 'www2', 'admin',
-            'forum', 'news', 'vpn', 'ns3', 'mail2', 'new',
-            'mysql', 'old', 'lists', 'support', 'mobile',
-            'mx', 'static', 'docs', 'beta', 'shop', 'sql',
-            'secure', 'demo', 'cp', 'calendar', 'wiki',
-            'web', 'media', 'email', 'images', 'img',
-            'download', 'dns', 'piwik', 'stats', 'dns2',
-            'apps', 'server', 'mssql', 'remote', 'api',
-            'dev-api', 'staging', 'cdn', 'assets', 'files',
-            'video', 'audio', 'stream', 'chat', 'live'
+        subdomains = [
+            'www', 'mail', 'ftp', 'webmail', 'smtp', 'pop', 'ns1', 'ns2',
+            'cpanel', 'whm', 'autodiscover', 'autoconfig', 'm', 'imap', 'test',
+            'ns', 'blog', 'pop3', 'dev', 'www2', 'admin', 'forum', 'news',
+            'vpn', 'ns3', 'mail2', 'new', 'mysql', 'old', 'lists', 'support',
+            'mobile', 'mx', 'static', 'docs', 'beta', 'shop', 'sql', 'secure',
+            'demo', 'cp', 'calendar', 'wiki', 'web', 'media', 'email', 'images',
+            'img', 'download', 'dns', 'stats', 'apps', 'server', 'remote', 'api',
+            'staging', 'cdn', 'assets', 'files', 'video', 'audio', 'stream', 'chat', 'live'
         ]
         
         found = []
         tasks = []
-        for sub in common_subdomains:
+        for sub in subdomains:
             full = f"{sub}.{domain}"
             tasks.append(self._check_subdomain(full))
             
@@ -117,3 +122,17 @@ class DomainOSINT(BaseModule):
             return False
         except:
             return False
+            
+    async def _detect_tech(self, domain):
+        tech = []
+        try:
+            async with self.session.get(f"https://{domain}", timeout=10) as resp:
+                headers = resp.headers
+                server = headers.get('server', '')
+                if server:
+                    tech.append(f"Server: {server}")
+                if 'x-powered-by' in headers:
+                    tech.append(f"Powered by: {headers['x-powered-by']}")
+        except:
+            pass
+        return tech
