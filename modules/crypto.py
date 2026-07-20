@@ -1,6 +1,7 @@
 import aiohttp
 import asyncio
 from typing import Dict, List
+from datetime import datetime
 from modules.base import BaseModule
 
 class CryptoOSINT(BaseModule):
@@ -9,56 +10,55 @@ class CryptoOSINT(BaseModule):
         self.tx_cache = {}
         
     async def scan(self, address: str, depth: int = 2) -> Dict:
+        results = {
+            'target': address,
+            'module': 'crypto',
+            'status': 'success',
+            'data': {
+                'address': address,
+                'chain': 'unknown',
+                'balance': 0,
+                'total_received': 0,
+                'total_sent': 0,
+                'transaction_count': 0,
+                'tree': {
+                    'depth': depth,
+                    'root': {
+                        'address': address,
+                        'level': 0,
+                        'children': []
+                    }
+                },
+                'flags': [],
+                'exchange_wallets': []
+            },
+            'timestamp': datetime.utcnow().isoformat()
+        }
+        
         address = address.strip()
         
         # Bitcoin
         if len(address) >= 26 and len(address) <= 34 and address[0] in ['1', '3']:
-            return await self._scan_bitcoin(address, depth)
+            return await self._scan_bitcoin(address, depth, results)
         if address.startswith('bc1') and len(address) >= 42:
-            return await self._scan_bitcoin(address, depth)
+            return await self._scan_bitcoin(address, depth, results)
             
         # Ethereum / EVM
         if address.startswith('0x') and len(address) == 42:
             chain = await self._detect_evm_chain(address)
-            return await self._scan_evm(address, depth, chain)
+            return await self._scan_evm(address, depth, chain, results)
             
         # Solana
         if len(address) >= 32 and len(address) <= 44 and address[0] in ['G', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F']:
-            return await self._scan_solana(address, depth)
+            return await self._scan_solana(address, depth, results)
             
         # Tron
         if address.startswith('T') and len(address) == 34:
-            return await self._scan_tron(address, depth)
+            return await self._scan_tron(address, depth, results)
             
-        # Ripple (XRP)
-        if address.startswith('r') and len(address) >= 33:
-            return await self._scan_xrp(address, depth)
-            
-        # Cardano (ADA)
-        if address.startswith('addr1') and len(address) >= 42:
-            return await self._scan_cardano(address, depth)
-            
-        # Polkadot (DOT)
-        if address.startswith('1') and len(address) >= 47:
-            return await self._scan_polkadot(address, depth)
-            
-        # Cosmos (ATOM)
-        if address.startswith('cosmos1') and len(address) >= 39:
-            return await self._scan_cosmos(address, depth)
-            
-        # Near
-        if len(address) >= 2 and '.' in address:
-            return await self._scan_near(address, depth)
-            
-        # Algorand
-        if len(address) == 58:
-            return await self._scan_algorand(address, depth)
-            
-        # Stellar (XLM)
-        if address.startswith('G') and len(address) == 56:
-            return await self._scan_stellar(address, depth)
-            
-        return {'error': 'Unsupported or invalid address format'}
+        results['status'] = 'error'
+        results['data']['error'] = 'Unsupported or invalid address format'
+        return results
         
     async def _detect_evm_chain(self, address):
         try:
@@ -93,67 +93,36 @@ class CryptoOSINT(BaseModule):
             
         return 'ethereum'
         
-    async def _scan_bitcoin(self, address: str, depth: int) -> Dict:
-        results = {
-            'address': address,
-            'chain': 'bitcoin',
-            'balance': 0,
-            'total_received': 0,
-            'total_sent': 0,
-            'transaction_count': 0,
-            'tree': {
-                'depth': depth,
-                'root': {
-                    'address': address,
-                    'level': 0,
-                    'children': []
-                }
-            },
-            'flags': [],
-            'exchange_wallets': []
-        }
+    async def _scan_bitcoin(self, address: str, depth: int, results: Dict) -> Dict:
+        data = results['data']
+        data['chain'] = 'bitcoin'
         
         try:
             async with self.session.get(
                 f"https://blockchain.info/rawaddr/{address}"
             ) as resp:
-                data = await resp.json()
+                resp_data = await resp.json()
                 
-                results['balance'] = data.get('final_balance', 0) / 100000000
-                results['total_received'] = data.get('total_received', 0) / 100000000
-                results['total_sent'] = data.get('total_sent', 0) / 100000000
-                results['transaction_count'] = data.get('n_tx', 0)
+                data['balance'] = resp_data.get('final_balance', 0) / 100000000
+                data['total_received'] = resp_data.get('total_received', 0) / 100000000
+                data['total_sent'] = resp_data.get('total_sent', 0) / 100000000
+                data['transaction_count'] = resp_data.get('n_tx', 0)
                 
-                txs = data.get('txs', [])[:50]
+                txs = resp_data.get('txs', [])[:50]
                 children = await self._build_tree(txs, address, depth, 1)
-                results['tree']['root']['children'] = children
-                results['flags'] = await self._detect_flags(results)
-                results['exchange_wallets'] = await self._detect_exchange(results)
+                data['tree']['root']['children'] = children
+                data['flags'] = await self._detect_flags(data)
+                data['exchange_wallets'] = await self._detect_exchange(data)
                 
         except Exception as e:
-            results['error'] = str(e)
+            results['status'] = 'error'
+            data['error'] = str(e)
             
         return results
         
-    async def _scan_evm(self, address: str, depth: int, chain: str) -> Dict:
-        results = {
-            'address': address,
-            'chain': chain,
-            'balance': 0,
-            'total_received': 0,
-            'total_sent': 0,
-            'transaction_count': 0,
-            'tree': {
-                'depth': depth,
-                'root': {
-                    'address': address,
-                    'level': 0,
-                    'children': []
-                }
-            },
-            'flags': [],
-            'exchange_wallets': []
-        }
+    async def _scan_evm(self, address: str, depth: int, chain: str, results: Dict) -> Dict:
+        data = results['data']
+        data['chain'] = chain
         
         explorer_urls = {
             'ethereum': 'https://api.etherscan.io/api',
@@ -172,11 +141,11 @@ class CryptoOSINT(BaseModule):
             async with self.session.get(
                 f"{base_url}?module=account&action=txlist&address={address}&sort=asc"
             ) as resp:
-                data = await resp.json()
+                resp_data = await resp.json()
                 
-                if data.get('status') == '1':
-                    txs = data.get('result', [])[:50]
-                    results['transaction_count'] = len(txs)
+                if resp_data.get('status') == '1':
+                    txs = resp_data.get('result', [])[:50]
+                    data['transaction_count'] = len(txs)
                     
                     balance = 0
                     total_received = 0
@@ -190,39 +159,24 @@ class CryptoOSINT(BaseModule):
                             balance -= value
                             total_sent += value
                             
-                    results['balance'] = balance
-                    results['total_received'] = total_received
-                    results['total_sent'] = total_sent
+                    data['balance'] = balance
+                    data['total_received'] = total_received
+                    data['total_sent'] = total_sent
                     
                     children = await self._build_eth_tree(txs, address, depth, 1)
-                    results['tree']['root']['children'] = children
-                    results['flags'] = await self._detect_flags(results)
-                    results['exchange_wallets'] = await self._detect_exchange(results)
+                    data['tree']['root']['children'] = children
+                    data['flags'] = await self._detect_flags(data)
+                    data['exchange_wallets'] = await self._detect_exchange(data)
                     
         except Exception as e:
-            results['error'] = str(e)
+            results['status'] = 'error'
+            data['error'] = str(e)
             
         return results
         
-    async def _scan_solana(self, address: str, depth: int) -> Dict:
-        results = {
-            'address': address,
-            'chain': 'solana',
-            'balance': 0,
-            'total_received': 0,
-            'total_sent': 0,
-            'transaction_count': 0,
-            'tree': {
-                'depth': depth,
-                'root': {
-                    'address': address,
-                    'level': 0,
-                    'children': []
-                }
-            },
-            'flags': [],
-            'exchange_wallets': []
-        }
+    async def _scan_solana(self, address: str, depth: int, results: Dict) -> Dict:
+        data = results['data']
+        data['chain'] = 'solana'
         
         try:
             # Get balance
@@ -235,9 +189,9 @@ class CryptoOSINT(BaseModule):
                     "params": [address]
                 }
             ) as resp:
-                data = await resp.json()
-                if 'result' in data:
-                    results['balance'] = data['result']['value'] / 1000000000
+                resp_data = await resp.json()
+                if 'result' in resp_data:
+                    data['balance'] = resp_data['result']['value'] / 1000000000
                     
             # Get transactions
             async with self.session.post(
@@ -249,12 +203,11 @@ class CryptoOSINT(BaseModule):
                     "params": [address, {"limit": 50}]
                 }
             ) as resp:
-                data = await resp.json()
-                if 'result' in data:
-                    txs = data['result']
-                    results['transaction_count'] = len(txs)
+                resp_data = await resp.json()
+                if 'result' in resp_data:
+                    txs = resp_data['result']
+                    data['transaction_count'] = len(txs)
                     
-                    # Get transaction details
                     children = []
                     seen = set()
                     for tx in txs[:20]:
@@ -273,12 +226,13 @@ class CryptoOSINT(BaseModule):
                                             'children': []
                                         })
                                         
-                    results['tree']['root']['children'] = children[:20]
-                    results['flags'] = await self._detect_flags(results)
-                    results['exchange_wallets'] = await self._detect_exchange(results)
+                    data['tree']['root']['children'] = children[:20]
+                    data['flags'] = await self._detect_flags(data)
+                    data['exchange_wallets'] = await self._detect_exchange(data)
                     
         except Exception as e:
-            results['error'] = str(e)
+            results['status'] = 'error'
+            data['error'] = str(e)
             
         return results
         
@@ -300,46 +254,30 @@ class CryptoOSINT(BaseModule):
             pass
         return None
         
-    async def _scan_tron(self, address: str, depth: int) -> Dict:
-        results = {
-            'address': address,
-            'chain': 'tron',
-            'balance': 0,
-            'total_received': 0,
-            'total_sent': 0,
-            'transaction_count': 0,
-            'tree': {
-                'depth': depth,
-                'root': {
-                    'address': address,
-                    'level': 0,
-                    'children': []
-                }
-            },
-            'flags': [],
-            'exchange_wallets': []
-        }
+    async def _scan_tron(self, address: str, depth: int, results: Dict) -> Dict:
+        data = results['data']
+        data['chain'] = 'tron'
         
         try:
             async with self.session.get(
                 f"https://api.trongrid.io/v1/accounts/{address}"
             ) as resp:
-                data = await resp.json()
-                if 'data' in data and data['data']:
-                    account = data['data'][0]
-                    results['balance'] = account.get('balance', 0) / 1000000
-                    results['total_received'] = account.get('total_received', 0) / 1000000
-                    results['total_sent'] = account.get('total_sent', 0) / 1000000
-                    results['transaction_count'] = account.get('transactions', 0)
+                resp_data = await resp.json()
+                if 'data' in resp_data and resp_data['data']:
+                    account = resp_data['data'][0]
+                    data['balance'] = account.get('balance', 0) / 1000000
+                    data['total_received'] = account.get('total_received', 0) / 1000000
+                    data['total_sent'] = account.get('total_sent', 0) / 1000000
+                    data['transaction_count'] = account.get('transactions', 0)
                     
             async with self.session.get(
                 f"https://api.trongrid.io/v1/accounts/{address}/transactions?limit=50"
             ) as resp:
-                data = await resp.json()
-                if 'data' in data:
+                resp_data = await resp.json()
+                if 'data' in resp_data:
                     children = []
                     seen = set()
-                    for tx in data['data'][:20]:
+                    for tx in resp_data['data'][:20]:
                         raw_data = tx.get('raw_data', {})
                         contract = raw_data.get('contract', [{}])[0]
                         if contract:
@@ -362,247 +300,11 @@ class CryptoOSINT(BaseModule):
                                     'level': 1,
                                     'children': []
                                 })
-                    results['tree']['root']['children'] = children[:20]
+                    data['tree']['root']['children'] = children[:20]
                     
         except Exception as e:
-            results['error'] = str(e)
-            
-        return results
-        
-    async def _scan_xrp(self, address: str, depth: int) -> Dict:
-        results = {
-            'address': address,
-            'chain': 'ripple',
-            'balance': 0,
-            'transaction_count': 0,
-            'tree': {
-                'depth': depth,
-                'root': {
-                    'address': address,
-                    'level': 0,
-                    'children': []
-                }
-            },
-            'flags': [],
-            'exchange_wallets': []
-        }
-        
-        try:
-            async with self.session.get(
-                f"https://api.xrpscan.com/api/v1/account/{address}"
-            ) as resp:
-                data = await resp.json()
-                results['balance'] = data.get('balance', 0) / 1000000
-                results['transaction_count'] = data.get('transactions', 0)
-                
-        except Exception as e:
-            results['error'] = str(e)
-            
-        return results
-        
-    async def _scan_cardano(self, address: str, depth: int) -> Dict:
-        results = {
-            'address': address,
-            'chain': 'cardano',
-            'balance': 0,
-            'transaction_count': 0,
-            'tree': {
-                'depth': depth,
-                'root': {
-                    'address': address,
-                    'level': 0,
-                    'children': []
-                }
-            },
-            'flags': [],
-            'exchange_wallets': []
-        }
-        
-        try:
-            async with self.session.get(
-                f"https://api.koios.rest/api/v1/address_info?_addresses={address}"
-            ) as resp:
-                data = await resp.json()
-                if data and len(data) > 0:
-                    results['balance'] = data[0].get('balance', 0) / 1000000
-                    results['transaction_count'] = data[0].get('tx_count', 0)
-                    
-        except Exception as e:
-            results['error'] = str(e)
-            
-        return results
-        
-    async def _scan_polkadot(self, address: str, depth: int) -> Dict:
-        results = {
-            'address': address,
-            'chain': 'polkadot',
-            'balance': 0,
-            'transaction_count': 0,
-            'tree': {
-                'depth': depth,
-                'root': {
-                    'address': address,
-                    'level': 0,
-                    'children': []
-                }
-            },
-            'flags': [],
-            'exchange_wallets': []
-        }
-        
-        try:
-            async with self.session.post(
-                "https://api.polkadot.subscan.io/api/v1/scan/account",
-                json={"address": address}
-            ) as resp:
-                data = await resp.json()
-                if data.get('code') == 0:
-                    results['balance'] = data['data'].get('balance', 0) / 10**10
-                    results['transaction_count'] = data['data'].get('count', 0)
-                    
-        except Exception as e:
-            results['error'] = str(e)
-            
-        return results
-        
-    async def _scan_cosmos(self, address: str, depth: int) -> Dict:
-        results = {
-            'address': address,
-            'chain': 'cosmos',
-            'balance': 0,
-            'transaction_count': 0,
-            'tree': {
-                'depth': depth,
-                'root': {
-                    'address': address,
-                    'level': 0,
-                    'children': []
-                }
-            },
-            'flags': [],
-            'exchange_wallets': []
-        }
-        
-        try:
-            async with self.session.get(
-                f"https://api.cosmos.network/cosmos/bank/v1beta1/balances/{address}"
-            ) as resp:
-                data = await resp.json()
-                if 'balances' in data:
-                    for balance in data['balances']:
-                        if balance['denom'] == 'uatom':
-                            results['balance'] = int(balance['amount']) / 1000000
-                            
-        except Exception as e:
-            results['error'] = str(e)
-            
-        return results
-        
-    async def _scan_near(self, address: str, depth: int) -> Dict:
-        results = {
-            'address': address,
-            'chain': 'near',
-            'balance': 0,
-            'transaction_count': 0,
-            'tree': {
-                'depth': depth,
-                'root': {
-                    'address': address,
-                    'level': 0,
-                    'children': []
-                }
-            },
-            'flags': [],
-            'exchange_wallets': []
-        }
-        
-        try:
-            async with self.session.post(
-                "https://rpc.mainnet.near.org",
-                json={
-                    "jsonrpc": "2.0",
-                    "id": "dontcare",
-                    "method": "query",
-                    "params": {
-                        "request_type": "view_account",
-                        "finality": "final",
-                        "account_id": address
-                    }
-                }
-            ) as resp:
-                data = await resp.json()
-                if 'result' in data:
-                    results['balance'] = data['result'].get('amount', 0) / 10**24
-                    
-        except Exception as e:
-            results['error'] = str(e)
-            
-        return results
-        
-    async def _scan_algorand(self, address: str, depth: int) -> Dict:
-        results = {
-            'address': address,
-            'chain': 'algorand',
-            'balance': 0,
-            'transaction_count': 0,
-            'tree': {
-                'depth': depth,
-                'root': {
-                    'address': address,
-                    'level': 0,
-                    'children': []
-                }
-            },
-            'flags': [],
-            'exchange_wallets': []
-        }
-        
-        try:
-            async with self.session.get(
-                f"https://algoindexer.algoexplorerapi.io/v2/accounts/{address}"
-            ) as resp:
-                data = await resp.json()
-                if 'account' in data:
-                    results['balance'] = data['account'].get('amount', 0) / 1000000
-                    results['transaction_count'] = data['account'].get('total-apps-opted-in', 0)
-                    
-        except Exception as e:
-            results['error'] = str(e)
-            
-        return results
-        
-    async def _scan_stellar(self, address: str, depth: int) -> Dict:
-        results = {
-            'address': address,
-            'chain': 'stellar',
-            'balance': 0,
-            'transaction_count': 0,
-            'tree': {
-                'depth': depth,
-                'root': {
-                    'address': address,
-                    'level': 0,
-                    'children': []
-                }
-            },
-            'flags': [],
-            'exchange_wallets': []
-        }
-        
-        try:
-            async with self.session.get(
-                f"https://horizon.stellar.org/accounts/{address}"
-            ) as resp:
-                data = await resp.json()
-                if 'balances' in data:
-                    for balance in data['balances']:
-                        if balance['asset_type'] == 'native':
-                            results['balance'] = float(balance['balance'])
-                            break
-                    results['transaction_count'] = data.get('subentry_count', 0)
-                    
-        except Exception as e:
-            results['error'] = str(e)
+            results['status'] = 'error'
+            data['error'] = str(e)
             
         return results
         
