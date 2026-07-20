@@ -3,6 +3,7 @@ import re
 import aiohttp
 import asyncio
 import dns.resolver
+import whois
 from typing import Dict, List
 from datetime import datetime
 from modules.base import BaseModule
@@ -22,47 +23,50 @@ class EmailOSINT(BaseModule):
             
     async def scan(self, email: str) -> Dict:
         results = {
-            'email': email,
-            'valid': False,
-            'domain': '',
-            'domain_age': None,
-            'domain_trust': 0,
-            'breaches': [],
-            'leaked_passwords': 0,
-            'disposable': False,
-            'gravatar': None,
-            'social_accounts': [],
-            'spf_record': None,
-            'dkim_record': None,
-            'dmarc_record': None,
-            'reputation_score': 0,
-            'risk_score': 0,
-            'first_seen': None,
-            'permutations': [],
-            'confidence': 0
+            'target': email,
+            'module': 'email',
+            'status': 'success',
+            'data': {
+                'email': email,
+                'valid': False,
+                'domain': '',
+                'domain_age': None,
+                'domain_trust': 0,
+                'breaches': [],
+                'leaked_passwords': 0,
+                'disposable': False,
+                'gravatar': None,
+                'social_accounts': [],
+                'spf_record': None,
+                'dkim_record': None,
+                'dmarc_record': None,
+                'reputation_score': 0,
+                'risk_score': 0,
+                'permutations': []
+            },
+            'timestamp': datetime.utcnow().isoformat()
         }
         
         if not self._validate_email(email):
-            results['error'] = 'Invalid email format'
+            results['status'] = 'error'
+            results['data']['error'] = 'Invalid email format'
             return results
             
-        results['domain'] = email.split('@')[1]
+        data = results['data']
+        data['domain'] = email.split('@')[1]
         
-        domain_checks = await self._check_domain(results['domain'])
-        results.update(domain_checks)
+        domain_checks = await self._check_domain(data['domain'])
+        data.update(domain_checks)
         
-        results['valid'] = await self._verify_email(email)
-        results['breaches'] = await self._check_breaches(email)
-        results['leaked_passwords'] = await self._check_leaked_passwords(email)
-        results['disposable'] = await self._is_disposable(email)
-        results['gravatar'] = await self._get_gravatar(email)
-        results['social_accounts'] = await self._find_social(email)
-        results['permutations'] = self._generate_permutations(email)
-        results['reputation_score'] = self._calculate_reputation(results)
-        results['risk_score'] = self._calculate_risk(results)
-        results['confidence'] = self._calculate_confidence(
-            len([v for v in results.values() if v]), 12
-        )
+        data['valid'] = await self._verify_email(email)
+        data['breaches'] = await self._check_breaches(email)
+        data['leaked_passwords'] = await self._check_leaked_passwords(email)
+        data['disposable'] = await self._is_disposable(email)
+        data['gravatar'] = await self._get_gravatar(email)
+        data['social_accounts'] = await self._find_social(email)
+        data['permutations'] = self._generate_permutations(email)
+        data['reputation_score'] = self._calculate_reputation(data)
+        data['risk_score'] = self._calculate_risk(data)
         
         return results
         
@@ -80,7 +84,6 @@ class EmailOSINT(BaseModule):
         }
         
         try:
-            import whois
             w = whois.whois(domain)
             if w.creation_date:
                 if isinstance(w.creation_date, list):
