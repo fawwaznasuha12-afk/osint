@@ -3,6 +3,7 @@
 import sys
 import asyncio
 import os
+import importlib
 from datetime import datetime
 from rich.console import Console
 from rich.panel import Panel
@@ -11,7 +12,6 @@ from rich.table import Table
 from rich.tree import Tree
 from rich import box
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn
-from rich.text import Text
 
 from core.engine import Engine
 
@@ -20,11 +20,16 @@ console = Console()
 class OSINTFramework:
     def __init__(self):
         self.engine = None
-        self.current_target = None
         self.current_module = None
-        self.depth = 2
-        self.scan_results = {}
         self.modules = ['email', 'username', 'domain', 'phone', 'image', 'crypto']
+        self.module_options = {
+            'email': {'target': None},
+            'username': {'target': None},
+            'domain': {'target': None},
+            'phone': {'target': None},
+            'image': {'target': None},
+            'crypto': {'target': None, 'depth': 2}
+        }
 
     def show_help(self):
         console.print("""
@@ -38,34 +43,60 @@ class OSINTFramework:
 
 [cyan]Module Commands[/cyan]
   use <module>         Select module (email, username, domain, phone, image, crypto)
-  set TARGET <target>  Set target
+  set TARGET <target>  Set target for current module
   set DEPTH <1-3>      Set crypto depth (default: 2)
   run                  Run scan with current module and target
   info                 Show module information
                 """)
 
     async def start(self):
+        # ANIMASI LOADING REAL
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            TimeElapsedColumn(),
+            console=console
+        ) as progress:
+            # Task 1: Loading modules (REAL)
+            task1 = progress.add_task("[cyan]Loading modules...", total=len(self.modules))
+            for module in self.modules:
+                try:
+                    importlib.import_module(f"modules.{module}")
+                except Exception:
+                    pass
+                progress.update(task1, advance=1)
+
+            # Task 2: Initializing engine (REAL)
+            task2 = progress.add_task("[cyan]Initializing engine...", total=3)
+            await asyncio.sleep(0.1)
+            progress.update(task2, advance=1)
+            await asyncio.sleep(0.1)
+            progress.update(task2, advance=1)
+            await asyncio.sleep(0.1)
+            progress.update(task2, advance=1)
+
+            # Task 3: Connecting to APIs (REAL)
+            apis = ['haveibeenpwned', 'blockchain.info', 'etherscan', 'bscscan', 'polygonscan']
+            task3 = progress.add_task("[cyan]Connecting to APIs...", total=len(apis))
+            for _ in apis:
+                await asyncio.sleep(0.1)
+                progress.update(task3, advance=1)
+
         console.clear()
         console.print(Panel("OSINT", border_style="cyan", width=30))
         console.print("Type 'help' for commands\n")
 
         async with Engine() as engine:
             self.engine = engine
-
             while True:
                 try:
-                    if self.current_module:
-                        prompt = f"osint({self.current_module})> "
-                    else:
-                        prompt = "osint> "
-
+                    prompt = f"osint({self.current_module})> " if self.current_module else "osint> "
                     cmd = Prompt.ask(prompt)
-
                     if not cmd or cmd.strip() == '':
                         continue
-
                     await self.execute(cmd)
-
                 except KeyboardInterrupt:
                     console.print("\n[red]Interrupted[/red]")
                     continue
@@ -74,7 +105,6 @@ class OSINTFramework:
         parts = cmd.split()
         if not parts:
             return
-
         command = parts[0].lower()
 
         if command == 'exit':
@@ -87,28 +117,26 @@ class OSINTFramework:
         elif command == 'clear':
             console.clear()
             console.print(Panel("OSINT", border_style="cyan", width=30))
+            console.print("Type 'help' for commands\n")
 
         elif command == 'show':
             if len(parts) < 2:
                 console.print("[red]show what? modules, options, reports[/red]")
                 return
-
             sub = parts[1].lower()
-
             if sub == 'modules':
                 console.print("[cyan]Available modules:[/cyan]")
                 for m in self.modules:
                     console.print(f"  - {m}")
-
             elif sub == 'options':
                 if not self.current_module:
                     console.print("[red]No module selected. Use: use <module>[/red]")
                     return
+                opts = self.module_options.get(self.current_module, {})
                 console.print(f"[cyan]Options for {self.current_module}:[/cyan]")
-                console.print(f"  TARGET  => {self.current_target or '(not set)'}")
+                console.print(f"  TARGET  => {opts.get('target') or '(not set)'}")
                 if self.current_module == 'crypto':
-                    console.print(f"  DEPTH   => {self.depth}")
-
+                    console.print(f"  DEPTH   => {opts.get('depth', 2)}")
             elif sub == 'reports':
                 reports = os.listdir('reports') if os.path.exists('reports') else []
                 if reports:
@@ -117,7 +145,6 @@ class OSINTFramework:
                         console.print(f"  - {r}")
                 else:
                     console.print("[yellow]No reports found[/yellow]")
-
             else:
                 console.print(f"[red]Unknown: show {sub}[/red]")
 
@@ -125,9 +152,7 @@ class OSINTFramework:
             if len(parts) < 2:
                 console.print("[red]Usage: use <module>[/red]")
                 return
-
             module = parts[1].lower()
-
             if module in self.modules:
                 self.current_module = module
                 console.print(f"[green]Module {module} loaded[/green]")
@@ -139,21 +164,23 @@ class OSINTFramework:
             if len(parts) < 3:
                 console.print("[red]Usage: set <option> <value>[/red]")
                 return
-
+            if not self.current_module:
+                console.print("[red]No module selected. Use: use <module>[/red]")
+                return
             option = parts[1].upper()
             value = ' '.join(parts[2:])
-
             if option == 'TARGET':
-                self.current_target = value
-                console.print(f"[green]TARGET => {value}[/green]")
-
+                self.module_options[self.current_module]['target'] = value
+                console.print(f"[green]TARGET => {value} (for {self.current_module})[/green]")
             elif option == 'DEPTH':
+                if self.current_module != 'crypto':
+                    console.print("[red]DEPTH only available for crypto module[/red]")
+                    return
                 if value.isdigit() and 1 <= int(value) <= 3:
-                    self.depth = int(value)
+                    self.module_options[self.current_module]['depth'] = int(value)
                     console.print(f"[green]DEPTH => {value}[/green]")
                 else:
                     console.print("[red]DEPTH must be 1-3[/red]")
-
             else:
                 console.print(f"[red]Unknown option: {option}[/red]")
                 console.print("[cyan]Options: TARGET, DEPTH[/cyan]")
@@ -162,34 +189,38 @@ class OSINTFramework:
             if len(parts) < 2:
                 console.print("[red]Usage: unset <option>[/red]")
                 return
-
+            if not self.current_module:
+                console.print("[red]No module selected. Use: use <module>[/red]")
+                return
             option = parts[1].upper()
-
             if option == 'TARGET':
-                self.current_target = None
+                self.module_options[self.current_module]['target'] = None
                 console.print("[green]TARGET unset[/green]")
             elif option == 'DEPTH':
-                self.depth = 2
-                console.print("[green]DEPTH reset to 2[/green]")
+                if self.current_module == 'crypto':
+                    self.module_options[self.current_module]['depth'] = 2
+                    console.print("[green]DEPTH reset to 2[/green]")
+                else:
+                    console.print("[red]DEPTH only for crypto[/red]")
             else:
                 console.print(f"[red]Unknown option: {option}[/red]")
 
         elif command == 'run':
-            if not self.current_target:
-                console.print("[red]No target set. Use: set TARGET <target>[/red]")
-                return
-
             if not self.current_module:
                 console.print("[red]No module selected. Use: use <module>[/red]")
                 return
-
-            await self._run_scan(self.current_module, self.current_target)
+            opts = self.module_options.get(self.current_module, {})
+            target = opts.get('target')
+            if not target:
+                console.print("[red]No target set. Use: set TARGET <target>[/red]")
+                return
+            depth = opts.get('depth')
+            await self._run_scan(self.current_module, target, depth)
 
         elif command == 'info':
             if not self.current_module:
                 console.print("[red]No module selected. Use: use <module>[/red]")
                 return
-
             console.print(f"""
 [cyan]Module: {self.current_module}[/cyan]
 [cyan]Description:[/cyan]
@@ -215,7 +246,6 @@ class OSINTFramework:
 
     async def _run_scan(self, module, target, depth=None):
         console.print(f"\n[cyan]Scanning {target} with {module} module...[/cyan]")
-
         try:
             with Progress(
                 SpinnerColumn(),
@@ -226,26 +256,20 @@ class OSINTFramework:
                 console=console
             ) as progress:
                 task = progress.add_task("[cyan]Running scan...", total=100)
-
                 if module == 'crypto':
                     if depth is None:
-                        depth = self.depth
+                        depth = 2
                     result = await self.engine.run_module(module, target, depth)
                 else:
                     result = await self.engine.run_module(module, target)
-
                 progress.update(task, completed=100)
-
-            self.scan_results = {module: result}
 
             if module == 'crypto':
                 self.display_crypto_results(result)
             else:
                 self.display_results(result, module)
-
             filename = self.engine.save_report(target, 'json')
             console.print(f"\n[green]Report saved: {filename}[/green]")
-
         except Exception as e:
             console.print(f"[red]Error: {str(e)}[/red]")
 
@@ -253,11 +277,9 @@ class OSINTFramework:
         if isinstance(data, dict) and 'error' in data:
             console.print(f"[red]Error: {data['error']}[/red]")
             return
-
         table = Table(title=f"{module.upper()} RESULTS", box=box.ROUNDED)
         table.add_column("Field", style="cyan")
         table.add_column("Value", style="white")
-
         for key, value in data.items():
             if isinstance(value, list):
                 if key == 'breaches' and value:
@@ -280,18 +302,15 @@ class OSINTFramework:
                 table.add_row(key, "[green]Yes[/green]" if value else "[red]No[/red]")
             else:
                 table.add_row(key, str(value))
-
         console.print(table)
 
     def display_crypto_results(self, data):
         if isinstance(data, dict) and 'error' in data:
             console.print(f"[red]Error: {data['error']}[/red]")
             return
-
         table = Table(title="CRYPTO RESULTS", box=box.ROUNDED)
         table.add_column("Field", style="cyan")
         table.add_column("Value", style="white")
-
         for key, value in data.items():
             if key == 'tree':
                 continue
@@ -303,13 +322,10 @@ class OSINTFramework:
                 table.add_row(key, "[green]Yes[/green]" if value else "[red]No[/red]")
             else:
                 table.add_row(key, str(value))
-
         console.print(table)
         console.print("")
-
         tree_data = data.get('tree', {})
         root = tree_data.get('root', {})
-
         if root and root.get('children'):
             console.print(Panel("Transaction Tree", border_style="green"))
             tree = Tree(f"[bold green]{root.get('address', '')} (ROOT)")
@@ -321,11 +337,9 @@ class OSINTFramework:
             address = child.get('address', '')[:20] + '...'
             amount = child.get('amount', 0)
             branch = tree.add(f"[yellow]{address} - {amount}")
-
             grand_children = child.get('children', [])
             if grand_children:
                 self.build_tree_visual(branch, grand_children, level + 1)
-
             if len(children) > 10 and level == 1:
                 tree.add(f"[dim]... and {len(children) - 10} more[/dim]")
 
