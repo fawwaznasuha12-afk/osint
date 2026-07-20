@@ -2,6 +2,7 @@ import phonenumbers
 from phonenumbers import carrier, geocoder, timezone
 import aiohttp
 from typing import Dict
+from datetime import datetime
 from modules.base import BaseModule
 
 class PhoneOSINT(BaseModule):
@@ -10,31 +11,40 @@ class PhoneOSINT(BaseModule):
         
     async def scan(self, phone: str) -> Dict:
         results = {
-            'phone': phone,
-            'valid': False,
-            'country': None,
-            'carrier': None,
-            'timezone': None,
-            'location': None,
-            'whatsapp': False,
-            'telegram': False,
-            'signal': False,
-            'risk_score': 0
+            'target': phone,
+            'module': 'phone',
+            'status': 'success',
+            'data': {
+                'phone': phone,
+                'valid': False,
+                'country': None,
+                'carrier': None,
+                'timezone': None,
+                'location': None,
+                'whatsapp': False,
+                'telegram': False,
+                'signal': False,
+                'risk_score': 0
+            },
+            'timestamp': datetime.utcnow().isoformat()
         }
         
         parsed = await self._parse_phone(phone)
         if not parsed:
+            results['status'] = 'error'
+            results['data']['error'] = 'Invalid phone number'
             return results
             
-        results['valid'] = True
-        results['country'] = parsed['country']
-        results['carrier'] = parsed['carrier']
-        results['timezone'] = parsed['timezone']
-        results['location'] = parsed['location']
+        data = results['data']
+        data['valid'] = True
+        data['country'] = parsed['country']
+        data['carrier'] = parsed['carrier']
+        data['timezone'] = parsed['timezone']
+        data['location'] = parsed['location']
         
-        results['whatsapp'] = await self._check_whatsapp(phone)
-        results['telegram'] = await self._check_telegram(phone)
-        results['signal'] = await self._check_signal(phone)
+        data['whatsapp'] = await self._check_whatsapp(phone)
+        data['telegram'] = await self._check_telegram(phone)
+        data['signal'] = await self._check_signal(phone)
         
         return results
         
