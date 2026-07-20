@@ -1,6 +1,7 @@
 import aiohttp
 import hashlib
 from typing import Dict
+from datetime import datetime
 from modules.base import BaseModule
 
 class ImageOSINT(BaseModule):
@@ -9,24 +10,31 @@ class ImageOSINT(BaseModule):
         
     async def scan(self, image_url: str) -> Dict:
         results = {
-            'url': image_url,
-            'hash': None,
-            'file_size': 0,
-            'format': None
+            'target': image_url,
+            'module': 'image',
+            'status': 'success',
+            'data': {
+                'url': image_url,
+                'hash': None,
+                'file_size': 0,
+                'format': None
+            },
+            'timestamp': datetime.utcnow().isoformat()
         }
         
         try:
             async with self.session.get(image_url) as resp:
                 if resp.status == 200:
                     data = await resp.read()
-                    results['file_size'] = len(data)
-                    results['hash'] = hashlib.md5(data).hexdigest()
+                    results['data']['file_size'] = len(data)
+                    results['data']['hash'] = hashlib.md5(data).hexdigest()
                     
                     content_type = resp.headers.get('content-type', '')
                     if 'image' in content_type:
-                        results['format'] = content_type.split('/')[-1]
+                        results['data']['format'] = content_type.split('/')[-1]
                         
         except:
-            results['error'] = 'Failed to fetch image'
+            results['status'] = 'error'
+            results['data']['error'] = 'Failed to fetch image'
             
         return results
