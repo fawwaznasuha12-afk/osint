@@ -6,10 +6,6 @@ import os
 from datetime import datetime
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn, TimeRemainingColumn
-from rich.panel import Panel
-from rich.table import Table
-from rich.tree import Tree
-from rich import box
 from concurrent.futures import ThreadPoolExecutor
 
 from core.validator import Validator
