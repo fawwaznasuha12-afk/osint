@@ -4,9 +4,6 @@ import hashlib
 import json
 from typing import Dict, List, Optional, Any
 from datetime import datetime
-from rich.console import Console
-
-console = Console()
 
 class BaseModule:
     def __init__(self, session, config, proxy_manager):
@@ -47,8 +44,3 @@ class BaseModule:
                 await asyncio.sleep(1)
                 continue
         return None
-        
-    def _calculate_confidence(self, findings, total_checks):
-        if total_checks == 0:
-            return 0
-        return int((findings / total_checks) * 100)
