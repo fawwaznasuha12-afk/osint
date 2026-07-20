@@ -19,9 +19,12 @@ class CryptoOSINT(BaseModule):
                 'address': address,
                 'chain': 'unknown',
                 'balance': 0,
+                'balance_usd': 0,
                 'total_received': 0,
                 'total_sent': 0,
                 'transaction_count': 0,
+                'first_tx': None,
+                'last_tx': None,
                 'tree': {
                     'depth': depth,
                     'root': {
@@ -31,7 +34,11 @@ class CryptoOSINT(BaseModule):
                     }
                 },
                 'flags': [],
-                'exchange_wallets': []
+                'exchange_wallets': [],
+                'token_balances': [],
+                'nfts': [],
+                'risk_score': 0,
+                'risk_level': 'low'
             },
             'timestamp': datetime.utcnow().isoformat()
         }
@@ -53,24 +60,27 @@ class CryptoOSINT(BaseModule):
         return results
 
     async def _detect_evm_chain(self, address):
-        try:
-            async with self.session.get(
-                f"https://api.etherscan.io/api?module=account&action=balance&address={address}"
-            ) as resp:
-                data = await resp.json()
-                if data.get('status') == '1':
-                    return 'ethereum'
-        except:
-            pass
-        try:
-            async with self.session.get(
-                f"https://api.bscscan.com/api?module=account&action=balance&address={address}"
-            ) as resp:
-                data = await resp.json()
-                if data.get('status') == '1':
-                    return 'bsc'
-        except:
-            pass
+        chains = [
+            ('ethereum', 'https://api.etherscan.io/api'),
+            ('bsc', 'https://api.bscscan.com/api'),
+            ('polygon', 'https://api.polygonscan.com/api'),
+            ('avalanche', 'https://api.snowtrace.io/api'),
+            ('arbitrum', 'https://api.arbiscan.io/api'),
+            ('optimism', 'https://api-optimistic.etherscan.io/api'),
+            ('fantom', 'https://api.ftmscan.com/api'),
+            ('cronos', 'https://api.cronoscan.com/api')
+        ]
+        
+        for chain_name, base_url in chains:
+            try:
+                async with self.session.get(
+                    f"{base_url}?module=account&action=balance&address={address}"
+                ) as resp:
+                    data = await resp.json()
+                    if data.get('status') == '1':
+                        return chain_name
+            except:
+                continue
         return 'ethereum'
 
     async def _scan_bitcoin(self, address: str, depth: int, results: Dict) -> Dict:
@@ -83,10 +93,18 @@ class CryptoOSINT(BaseModule):
                 data['total_received'] = resp_data.get('total_received', 0) / 100000000
                 data['total_sent'] = resp_data.get('total_sent', 0) / 100000000
                 data['transaction_count'] = resp_data.get('n_tx', 0)
+                
                 txs = resp_data.get('txs', [])[:50]
+                if txs:
+                    data['first_tx'] = datetime.fromtimestamp(txs[-1].get('time', 0)).isoformat()
+                    data['last_tx'] = datetime.fromtimestamp(txs[0].get('time', 0)).isoformat()
+                    
                 data['tree']['root']['children'] = await self._build_tree(txs, address, depth, 1)
                 data['flags'] = await self._detect_flags(data)
                 data['exchange_wallets'] = await self._detect_exchange(data)
+                data['balance_usd'] = data['balance'] * await self._get_btc_price()
+                data['risk_score'] = self._calculate_risk(data)
+                data['risk_level'] = self._get_risk_level(data['risk_score'])
         except Exception as e:
             results['status'] = 'error'
             data['error'] = str(e)
@@ -99,6 +117,11 @@ class CryptoOSINT(BaseModule):
             'ethereum': 'https://api.etherscan.io/api',
             'bsc': 'https://api.bscscan.com/api',
             'polygon': 'https://api.polygonscan.com/api',
+            'avalanche': 'https://api.snowtrace.io/api',
+            'arbitrum': 'https://api.arbiscan.io/api',
+            'optimism': 'https://api-optimistic.etherscan.io/api',
+            'fantom': 'https://api.ftmscan.com/api',
+            'cronos': 'https://api.cronoscan.com/api'
         }
         base_url = explorer_urls.get(chain, 'https://api.etherscan.io/api')
         try:
@@ -123,9 +146,18 @@ class CryptoOSINT(BaseModule):
                     data['balance'] = balance
                     data['total_received'] = total_received
                     data['total_sent'] = total_sent
+                    
+                    if txs:
+                        data['first_tx'] = datetime.fromtimestamp(int(txs[-1].get('timeStamp', 0))).isoformat()
+                        data['last_tx'] = datetime.fromtimestamp(int(txs[0].get('timeStamp', 0))).isoformat()
+                        
                     data['tree']['root']['children'] = await self._build_eth_tree(txs, address, depth, 1)
                     data['flags'] = await self._detect_flags(data)
                     data['exchange_wallets'] = await self._detect_exchange(data)
+                    data['token_balances'] = await self._get_evm_tokens(address, base_url)
+                    data['balance_usd'] = data['balance'] * await self._get_eth_price()
+                    data['risk_score'] = self._calculate_risk(data)
+                    data['risk_level'] = self._get_risk_level(data['risk_score'])
         except Exception as e:
             results['status'] = 'error'
             data['error'] = str(e)
@@ -151,6 +183,9 @@ class CryptoOSINT(BaseModule):
                 if 'result' in resp_data:
                     txs = resp_data['result']
                     data['transaction_count'] = len(txs)
+                    if txs:
+                        data['first_tx'] = txs[-1].get('blockTime')
+                        data['last_tx'] = txs[0].get('blockTime')
                     children = []
                     seen = set()
                     for tx in txs[:20]:
@@ -171,6 +206,9 @@ class CryptoOSINT(BaseModule):
                     data['tree']['root']['children'] = children[:20]
                     data['flags'] = await self._detect_flags(data)
                     data['exchange_wallets'] = await self._detect_exchange(data)
+                    data['balance_usd'] = data['balance'] * await self._get_sol_price()
+                    data['risk_score'] = self._calculate_risk(data)
+                    data['risk_level'] = self._get_risk_level(data['risk_score'])
         except Exception as e:
             results['status'] = 'error'
             data['error'] = str(e)
@@ -199,10 +237,63 @@ class CryptoOSINT(BaseModule):
                     data['total_received'] = account.get('total_received', 0) / 1000000
                     data['total_sent'] = account.get('total_sent', 0) / 1000000
                     data['transaction_count'] = account.get('transactions', 0)
+                    data['balance_usd'] = data['balance'] * await self._get_trx_price()
+                    data['risk_score'] = self._calculate_risk(data)
+                    data['risk_level'] = self._get_risk_level(data['risk_score'])
         except Exception as e:
             results['status'] = 'error'
             data['error'] = str(e)
         return results
+
+    async def _get_evm_tokens(self, address, base_url):
+        try:
+            async with self.session.get(
+                f"{base_url}?module=account&action=tokentx&address={address}"
+            ) as resp:
+                data = await resp.json()
+                if data.get('status') == '1':
+                    tokens = {}
+                    for tx in data.get('result', []):
+                        symbol = tx.get('tokenSymbol', 'UNKNOWN')
+                        if symbol not in tokens:
+                            tokens[symbol] = 0
+                        tokens[symbol] += int(tx.get('value', 0)) / 10**int(tx.get('tokenDecimal', 18))
+                    return [{'symbol': k, 'balance': v} for k, v in tokens.items()]
+        except:
+            pass
+        return []
+
+    async def _get_btc_price(self):
+        try:
+            async with self.session.get("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd") as resp:
+                data = await resp.json()
+                return data.get('bitcoin', {}).get('usd', 0)
+        except:
+            return 0
+
+    async def _get_eth_price(self):
+        try:
+            async with self.session.get("https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd") as resp:
+                data = await resp.json()
+                return data.get('ethereum', {}).get('usd', 0)
+        except:
+            return 0
+
+    async def _get_sol_price(self):
+        try:
+            async with self.session.get("https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd") as resp:
+                data = await resp.json()
+                return data.get('solana', {}).get('usd', 0)
+        except:
+            return 0
+
+    async def _get_trx_price(self):
+        try:
+            async with self.session.get("https://api.coingecko.com/api/v3/simple/price?ids=tron&vs_currencies=usd") as resp:
+                data = await resp.json()
+                return data.get('tron', {}).get('usd', 0)
+        except:
+            return 0
 
     async def _build_tree(self, txs, root_address, depth, current_level):
         if current_level > depth:
@@ -297,6 +388,8 @@ class CryptoOSINT(BaseModule):
             flags.append({'address': data['address'], 'risk': 'High Balance', 'confidence': 70})
         if data.get('transaction_count', 0) > 1000:
             flags.append({'address': data['address'], 'risk': 'High Transaction Volume', 'confidence': 85})
+        if data.get('balance', 0) > 1000:
+            flags.append({'address': data['address'], 'risk': 'Whale Wallet', 'confidence': 90})
         return flags
 
     async def _detect_exchange(self, data):
@@ -310,3 +403,29 @@ class CryptoOSINT(BaseModule):
                     if exchange in addr_lower and addr not in found:
                         found.append(addr)
         return found
+
+    def _calculate_risk(self, data):
+        risk = 0
+        if data.get('balance', 0) > 100:
+            risk += 20
+        if data.get('balance', 0) > 1000:
+            risk += 30
+        if data.get('transaction_count', 0) > 100:
+            risk += 10
+        if data.get('transaction_count', 0) > 1000:
+            risk += 20
+        if data.get('exchange_wallets'):
+            risk += 10
+        return min(100, risk)
+
+    def _get_risk_level(self, score):
+        if score >= 70:
+            return 'critical'
+        elif score >= 50:
+            return 'high'
+        elif score >= 30:
+            return 'medium'
+        elif score >= 10:
+            return 'low'
+        else:
+            return 'safe'
