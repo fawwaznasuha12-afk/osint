@@ -69,7 +69,6 @@ class OSINTFramework:
                 """)
 
     async def start(self):
-        # ANIMASI LOADING REAL
         with Progress(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
@@ -78,7 +77,6 @@ class OSINTFramework:
             TimeElapsedColumn(),
             console=console
         ) as progress:
-            # Task 1: Loading modules
             task1 = progress.add_task("[cyan]Loading modules...", total=len(self.modules))
             for module in self.modules:
                 try:
@@ -87,7 +85,6 @@ class OSINTFramework:
                     pass
                 progress.update(task1, advance=1)
 
-            # Task 2: Initializing engine
             task2 = progress.add_task("[cyan]Initializing engine...", total=3)
             await asyncio.sleep(0.1)
             progress.update(task2, advance=1)
@@ -96,7 +93,6 @@ class OSINTFramework:
             await asyncio.sleep(0.1)
             progress.update(task2, advance=1)
 
-            # Task 3: Connecting to APIs
             apis = ['haveibeenpwned', 'blockchain.info', 'etherscan', 'bscscan', 'polygonscan']
             task3 = progress.add_task("[cyan]Connecting to APIs...", total=len(apis))
             for _ in apis:
@@ -161,11 +157,27 @@ class OSINTFramework:
 
         elif command == 'show':
             if len(parts) < 2:
-                console.print("[red]show what? modules, options, reports[/red]")
+                console.print("[red]show what? modules, options, reports, templates, victims, logs, stats[/red]")
                 return
 
             sub = parts[1].lower()
 
+            # SOCIAL ENGINEERING SHOW COMMANDS
+            if self.current_module == 'social_engineering' and self.social_engine:
+                if sub == 'templates':
+                    await self.social_engine.show_templates()
+                    return
+                elif sub == 'victims':
+                    await self.social_engine.show_victims()
+                    return
+                elif sub == 'logs':
+                    await self.social_engine.show_logs()
+                    return
+                elif sub == 'stats':
+                    await self.social_engine.show_stats()
+                    return
+
+            # REGULAR SHOW COMMANDS
             if sub == 'modules':
                 console.print("[cyan]Available modules:[/cyan]")
                 for m in self.modules:
@@ -176,22 +188,23 @@ class OSINTFramework:
                     console.print("[red]No module selected. Use: use <module>[/red]")
                     return
                     
-                if self.current_module == 'social_engineering':
+                if self.current_module == 'social_engineering' and self.social_engine:
                     console.print(f"[cyan]Options for {self.current_module}:[/cyan]")
-                    console.print(f"  TEMPLATE     => {self.social_engine.template if self.social_engine else '(not set)'}")
-                    console.print(f"  REDIRECT     => {self.social_engine.redirect_url if self.social_engine else '(not set)'}")
-                    console.print(f"  PORT         => {self.social_engine.port if self.social_engine else '8080'}")
-                    console.print(f"  TYPE         => {self.social_engine.type if self.social_engine else 'phishing'}")
-                    console.print(f"  TEMPLATE_PATH => {self.social_engine.template_path if self.social_engine else '(not set)'}")
-                    console.print(f"  STATUS       => {'[green]Running[/green]' if self.social_engine and self.social_engine.is_running else '[red]Stopped[/red]'}")
-                    if self.social_engine and self.social_engine.tunnel_url:
+                    console.print(f"  TEMPLATE     => {self.social_engine.template}")
+                    console.print(f"  REDIRECT     => {self.social_engine.redirect_url}")
+                    console.print(f"  PORT         => {self.social_engine.port}")
+                    console.print(f"  TYPE         => {self.social_engine.type}")
+                    console.print(f"  TEMPLATE_PATH => {self.social_engine.template_path or 'None'}")
+                    console.print(f"  STATUS       => {'[green]Running[/green]' if self.social_engine.is_running else '[red]Stopped[/red]'}")
+                    if self.social_engine.tunnel_url:
                         console.print(f"  TUNNEL URL   => {self.social_engine.tunnel_url}")
-                else:
-                    opts = self.module_options.get(self.current_module, {})
-                    console.print(f"[cyan]Options for {self.current_module}:[/cyan]")
-                    console.print(f"  TARGET  => {opts.get('target') or '(not set)'}")
-                    if self.current_module == 'crypto':
-                        console.print(f"  DEPTH   => {opts.get('depth', 2)}")
+                    return
+                    
+                opts = self.module_options.get(self.current_module, {})
+                console.print(f"[cyan]Options for {self.current_module}:[/cyan]")
+                console.print(f"  TARGET  => {opts.get('target') or '(not set)'}")
+                if self.current_module == 'crypto':
+                    console.print(f"  DEPTH   => {opts.get('depth', 2)}")
 
             elif sub == 'reports':
                 reports = os.listdir('reports') if os.path.exists('reports') else []
@@ -236,8 +249,8 @@ class OSINTFramework:
                 console.print("[red]No module selected. Use: use <module>[/red]")
                 return
 
-            # Social Engineering specific set
-            if self.current_module == 'social_engineering':
+            # SOCIAL ENGINEERING SET
+            if self.current_module == 'social_engineering' and self.social_engine:
                 option = parts[1].upper()
                 value = ' '.join(parts[2:])
                 
@@ -256,7 +269,7 @@ class OSINTFramework:
                     console.print("[cyan]Options: TEMPLATE, TEMPLATE_PATH, REDIRECT, PORT, TYPE[/cyan]")
                 return
 
-            # Regular module set
+            # REGULAR SET
             option = parts[1].upper()
             value = ' '.join(parts[2:])
 
@@ -306,12 +319,12 @@ class OSINTFramework:
                 console.print("[red]No module selected. Use: use <module>[/red]")
                 return
 
-            # Social Engineering run
-            if self.current_module == 'social_engineering':
+            # SOCIAL ENGINEERING RUN
+            if self.current_module == 'social_engineering' and self.social_engine:
                 await self.social_engine.run()
                 return
 
-            # Regular module run
+            # REGULAR RUN
             opts = self.module_options.get(self.current_module, {})
             target = opts.get('target')
             
