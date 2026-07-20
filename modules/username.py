@@ -57,7 +57,6 @@ class UsernameOSINT(BaseModule):
         
     def _get_platforms(self):
         return [
-            # Social Media
             {'name': 'Instagram', 'url': 'https://instagram.com/{username}', 'type': 'social'},
             {'name': 'Twitter', 'url': 'https://twitter.com/{username}', 'type': 'social'},
             {'name': 'Facebook', 'url': 'https://facebook.com/{username}', 'type': 'social'},
@@ -71,34 +70,24 @@ class UsernameOSINT(BaseModule):
             {'name': 'Myspace', 'url': 'https://myspace.com/{username}', 'type': 'social'},
             {'name': 'Badoo', 'url': 'https://badoo.com/{username}', 'type': 'dating'},
             {'name': 'Tinder', 'url': 'https://tinder.com/@{username}', 'type': 'dating'},
-            
-            # Video
             {'name': 'YouTube', 'url': 'https://youtube.com/@{username}', 'type': 'video'},
             {'name': 'Twitch', 'url': 'https://twitch.tv/{username}', 'type': 'video'},
             {'name': 'Vimeo', 'url': 'https://vimeo.com/{username}', 'type': 'video'},
             {'name': 'DailyMotion', 'url': 'https://dailymotion.com/{username}', 'type': 'video'},
-            
-            # Forum
             {'name': 'Reddit', 'url': 'https://reddit.com/user/{username}', 'type': 'forum'},
             {'name': 'Quora', 'url': 'https://quora.com/profile/{username}', 'type': 'forum'},
             {'name': 'StackOverflow', 'url': 'https://stackoverflow.com/users/{username}', 'type': 'forum'},
             {'name': 'HackerNews', 'url': 'https://news.ycombinator.com/user?id={username}', 'type': 'forum'},
             {'name': 'Pastebin', 'url': 'https://pastebin.com/u/{username}', 'type': 'forum'},
-            
-            # Blog
             {'name': 'Medium', 'url': 'https://medium.com/@{username}', 'type': 'blog'},
             {'name': 'Substack', 'url': 'https://substack.com/@{username}', 'type': 'blog'},
             {'name': 'WordPress', 'url': 'https://wordpress.com/{username}', 'type': 'blog'},
             {'name': 'Blogger', 'url': 'https://blogger.com/{username}', 'type': 'blog'},
             {'name': 'Dev.to', 'url': 'https://dev.to/{username}', 'type': 'blog'},
-            
-            # Audio
             {'name': 'Spotify', 'url': 'https://open.spotify.com/user/{username}', 'type': 'audio'},
             {'name': 'SoundCloud', 'url': 'https://soundcloud.com/{username}', 'type': 'audio'},
             {'name': 'Mixcloud', 'url': 'https://mixcloud.com/{username}', 'type': 'audio'},
             {'name': 'Bandcamp', 'url': 'https://bandcamp.com/{username}', 'type': 'audio'},
-            
-            # Photo
             {'name': 'Flickr', 'url': 'https://flickr.com/people/{username}', 'type': 'photo'},
             {'name': '500px', 'url': 'https://500px.com/{username}', 'type': 'photo'},
             {'name': 'Unsplash', 'url': 'https://unsplash.com/@{username}', 'type': 'photo'},
@@ -106,22 +95,16 @@ class UsernameOSINT(BaseModule):
             {'name': 'ArtStation', 'url': 'https://artstation.com/{username}', 'type': 'photo'},
             {'name': 'Dribbble', 'url': 'https://dribbble.com/{username}', 'type': 'photo'},
             {'name': 'Behance', 'url': 'https://behance.net/{username}', 'type': 'photo'},
-            
-            # Gaming
             {'name': 'Steam', 'url': 'https://steamcommunity.com/id/{username}', 'type': 'gaming'},
             {'name': 'PlayStation', 'url': 'https://playstation.com/{username}', 'type': 'gaming'},
             {'name': 'Xbox', 'url': 'https://xbox.com/{username}', 'type': 'gaming'},
             {'name': 'Nintendo', 'url': 'https://nintendo.com/{username}', 'type': 'gaming'},
             {'name': 'EpicGames', 'url': 'https://epicgames.com/{username}', 'type': 'gaming'},
-            
-            # Chat
             {'name': 'Telegram', 'url': 'https://t.me/{username}', 'type': 'chat'},
             {'name': 'Discord', 'url': 'https://discord.com/users/{username}', 'type': 'chat'},
             {'name': 'WhatsApp', 'url': 'https://wa.me/{username}', 'type': 'chat'},
             {'name': 'Line', 'url': 'https://line.me/{username}', 'type': 'chat'},
             {'name': 'KakaoTalk', 'url': 'https://kakao.com/{username}', 'type': 'chat'},
-            
-            # Coding
             {'name': 'GitHub', 'url': 'https://github.com/{username}', 'type': 'coding'},
             {'name': 'GitLab', 'url': 'https://gitlab.com/{username}', 'type': 'coding'},
             {'name': 'Bitbucket', 'url': 'https://bitbucket.org/{username}', 'type': 'coding'},
@@ -130,8 +113,6 @@ class UsernameOSINT(BaseModule):
             {'name': 'LeetCode', 'url': 'https://leetcode.com/{username}', 'type': 'coding'},
             {'name': 'HackerRank', 'url': 'https://hackerrank.com/{username}', 'type': 'coding'},
             {'name': 'Codeforces', 'url': 'https://codeforces.com/profile/{username}', 'type': 'coding'},
-            
-            # Security
             {'name': 'HackTheBox', 'url': 'https://hackthebox.eu/home/users/profile/{username}', 'type': 'coding'},
             {'name': 'TryHackMe', 'url': 'https://tryhackme.com/p/{username}', 'type': 'coding'},
             {'name': 'Keybase', 'url': 'https://keybase.io/{username}', 'type': 'coding'}
