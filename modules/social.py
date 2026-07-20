@@ -1,5 +1,6 @@
 import aiohttp
 from typing import Dict
+from datetime import datetime
 from modules.base import BaseModule
 
 class SocialOSINT(BaseModule):
@@ -9,20 +10,27 @@ class SocialOSINT(BaseModule):
     async def scan(self, target: str) -> Dict:
         results = {
             'target': target,
-            'platforms': {},
-            'total_followers': 0,
-            'profiles': []
+            'module': 'social',
+            'status': 'success',
+            'data': {
+                'target': target,
+                'platforms': {},
+                'total_followers': 0,
+                'profiles': []
+            },
+            'timestamp': datetime.utcnow().isoformat()
         }
         
-        platforms = ['instagram', 'facebook', 'twitter', 'linkedin', 'tiktok']
+        platforms = ['instagram', 'facebook', 'twitter', 'linkedin', 'tiktok', 'youtube']
         
+        data = results['data']
         for platform in platforms:
             result = await self._scrape_platform(platform, target)
-            results['platforms'][platform] = result
+            data['platforms'][platform] = result
             if result.get('followers'):
-                results['total_followers'] += result.get('followers', 0)
+                data['total_followers'] += result.get('followers', 0)
             if result.get('profile'):
-                results['profiles'].append(result['profile'])
+                data['profiles'].append(result['profile'])
                 
         return results
         
@@ -37,7 +45,10 @@ class SocialOSINT(BaseModule):
             return await self._linkedin(target)
         elif platform == 'tiktok':
             return await self._tiktok(target)
-            
+        elif platform == 'youtube':
+            return await self._youtube(target)
+        return {'exists': False}
+        
     async def _instagram(self, username):
         try:
             async with self.session.get(
@@ -115,6 +126,20 @@ class SocialOSINT(BaseModule):
                     return {
                         'exists': True,
                         'profile_url': f"https://tiktok.com/@{username}"
+                    }
+        except:
+            pass
+        return {'exists': False}
+        
+    async def _youtube(self, username):
+        try:
+            async with self.session.get(
+                f"https://youtube.com/@{username}"
+            ) as resp:
+                if resp.status == 200:
+                    return {
+                        'exists': True,
+                        'profile_url': f"https://youtube.com/@{username}"
                     }
         except:
             pass
